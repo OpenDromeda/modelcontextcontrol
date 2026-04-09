@@ -1,0 +1,24 @@
+{
+  "roots": ["C:/", "D:/"],
+  "permissions": {
+    "mode": "read_write",
+    "write_allow_paths": [
+      "C:\\mcc"
+    ],
+    "write_deny_paths": []
+  },
+  "blocked": {
+    "dir_names": [".git",".svn",".hg",".idea",".vscode","node_modules","__pycache__",".venv","venv","$recycle.bin","system volume information","windows","programdata"],
+    "path_parts": ["appdata",".ssh",".gnupg",".aws",".azure",".kube",".docker",".config"],
+    "suffixes": [".env",".env.local",".env.development",".env.production",".key",".pem",".pfx",".p12",".kdbx",".ovpn"],
+    "file_names": ["id_rsa","id_ed25519","authorized_keys","known_hosts","credentials","config.json"],
+    "name_contains": ["secret","token","password","apikey","api_key","private_key"]
+  },
+  "python_automation": {"enabled": false,"interval_minutes": 60,"script_timeout_seconds": 1800,"allowed_directories": [],"allowed_scripts": [],"script_sha256": {}},
+  "tool_registry": {"active_profile": "standard","disabled_tools": [],"custom_profiles": {}},
+  "sqlite_mcp": {"enabled": false,"allowed_databases": []},
+  "gemini_cli": {"enabled": false,"allow_subprocess": false,"model": "gemini-2.5-flash","gemini_path": ""},
+  "github_mcp": {"enabled": true},
+  "git": {"enabled": true,"can_commit": true,"allowed_repos": ["C:\\mcc"]},
+  "at_mention": {"enabled": false,"default_agent": ""}
+}

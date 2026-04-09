@@ -1,0 +1,101 @@
+EVOKI / MCP Guardian – mögliche nächste Schritte (Roadmap)
+==========================================================
+Stand: Orientierung für ein späteres öffentliches Repository. Kein verbindlicher Plan.
+
+Hinweis Build-Stand (lokal)
+----------------------------
+Quellcode (z. B. scripts/mcp_guardian_app.py) kann bereits neuer sein als die gebaute EXE.
+dist/EVOKI_GUARDIAN_CONTROL_CENTER.exe ggf. neu bauen (scripts/build_guardian_app.bat), wenn
+die letzten Änderungen in der ausführbaren Datei ankommen sollen.
+Aktuell: Quellcode bereits angepasst, EXE-Build noch nicht erneut ausgeführt.
+
+Zielbild
+--------
+Nach ausreichender Testzeit: schlankes, versionierbares Paket nur für den MCP Guardian
+(Control Center + MCP-Server-Skripte), ohne private Projektreste, mit GitHub und Verweis
+auf https://evolution-ki.com
+
+
+Phase 1 – Testzeit (lokal / produktionsnah)
+-------------------------------------------
+- Guardian-EXE und/oder Python-Start im Alltag nutzen (Stack starten, OAuth, Tunnel, Policy).
+- Edge Cases dokumentieren (Neustart nach Secret-Änderung, Keystore, Blocklist).
+- Entscheiden, welche Dateien wirklich zum „öffentlichen“ Paket gehören (siehe Phase 2).
+
+
+Phase 2 – Eigenes Arbeitsverzeichnis (z. B. C:\MCP_GUARDIAN)
+------------------------------------------------------------
+Zweck: saubere Kopie, ohne den gesamten EVOKI-V5-Monolithen mitzuschleifen.
+
+Vorschlag – nur notwendige Bausteine kopieren (Namen anpassen, falls sich Struktur ändert):
+- scripts/mcp_guardian_app.py
+- scripts/mcp_readonly_evoki.py (oder aktueller MCP-Server-Einstieg)
+- scripts/build_guardian_app.bat
+- requirements.txt (nur Zeilen, die der Guardian + MCP wirklich braucht; ggf. requirements-guardian.txt)
+- Beispiel-/Template-Dateien statt Live-Daten:
+  - z. B. mcp_policy.example.json → Nutzer kopiert nach config/mcp_policy.json
+- Optional: kurze Ordnerstruktur README: config/, logs/, dist/ nur lokal bauen
+
+Nicht kopieren (typisch):
+- config/keystore.enc, keystore.salt, echte mcp_policy.json mit privaten Pfaden
+- logs/*, dist/*.exe (EXE optional als Release-Asset, nicht zwingend im Repo)
+- .shadow/, große Trainingsdaten, andere EVOKI-Teilprojekte
+
+
+Phase 3 – Git Repository (lokal, dann GitHub)
+---------------------------------------------
+- Im Zielverzeichnis: git init
+- .gitignore: config/*.enc, config/keystore.*, logs/, __pycache__/, build/, dist/, *.spec,
+  .env, lokale IDE-Ordner, ggf. blocked_ips mit echten IPs
+- Erster Commit: nur Quellcode + Templates + Doku
+- Auf GitHub: neues Repository anlegen (Name z. B. mcp-guardian oder evoki-mcp-guardian)
+- Branch-Strategie: main + ggf. Tags für Releases (v1.0.0)
+
+
+Phase 4 – README und GitHub-Anpassungen
+---------------------------------------
+README sollte enthalten (grob):
+- Was ist der Guardian (ein Satz + Link evolution-ki.com / Projektseite)
+- Voraussetzungen: Windows, Python-Version, optional cloudflared/Tunnel-Hinweis
+- Installation: pip install -r requirements.txt
+- Start: python scripts/mcp_guardian_app.py oder gebaute EXE
+- OAuth/GitHub: Verweis auf Hilfe in der App oder kurze Checkliste
+- Build EXE: build_guardian_app.bat, EVOKI_PYTHON optional
+- Lizenz: Datei LICENSE wählen (MIT, Apache-2.0, …) und im Repo ablegen
+- Sicherheitshinweis: Keystore schützen, keine Secrets ins Repo
+
+GitHub: Beschreibung, Topics (mcp, fastmcp, oauth, guardian), Website-URL auf evolution-ki.com setzen.
+
+
+Phase 5 – Letzter Check: nichts Persönliches
+--------------------------------------------
+Manuell und per Suche prüfen:
+- Keine Windows-Benutzernamen, keine C:\Users\…-Pfade in eingecheckten Dateien
+- Keine echten Client-IDs/Secrets, Bearer-Keys, Tokens
+- Keine privaten Domains/IPs, aufer bewusst dokumentierte Beispiele (example.com)
+- Hardcodierte Produktions-URLs: bewusst lassen oder durch Platzhalter/README erklären
+- In Skripten: DEFAULT_POLICY / Beispiel-Roots auf neutrale oder dokumentierte Pfade
+
+Werkzeug: ripgrep nach Pfaden, "token", "secret", "password", "Bearer "
+
+
+Phase 6 – Öffentlich schalten
+-----------------------------
+- Repository auf „public“ stellen
+- Auf evolution-ki.com (Projekt-/Download-Bereich) Link zum GitHub-Repo setzen
+- Optional: Release mit gebauter EXE als Asset (oder nur Quellcode + Build-Anleitung)
+
+
+Kurzfassung
+-----------
+Testen → schlanke Kopie nach C:\MCP_GUARDIAN o. ä. → Git + .gitignore → README + LICENSE →
+Daten- und Pfad-Audit → GitHub public → Link von evolution-ki.com
+
+
+Notiz (UI / Betrieb) – umgesetzt im Guardian
+---------------------------------------------
+- Health-Check (periodisch): schreibt weiterhin eine Zeile in logs/guardian_health.jsonl;
+  dieselbe Auswertung erscheint zusätzlich im Betriebslog-Bereich unter „Betrieb“ (sichtbar
+  in der Session), damit man nicht nur die JSONL-Datei öffnen muss.
+- „Anzeige leeren“ neben dem Betriebslog: leert nur das Textfeld in der UI. Dateien
+  (insbesondere guardian_health.jsonl) werden dabei nicht gelöscht oder verändert.

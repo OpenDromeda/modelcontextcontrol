@@ -1,0 +1,13 @@
+config/keystore.enc
+config/keystore.salt
+config/blocked_ips.json
+config/GUARDIAN_CHAT_memory.db
+config/rate_state.json
+logs/
+dist/
+build/
+__pycache__/
+*.pyc
+*.spec
+.env
+.env.*
