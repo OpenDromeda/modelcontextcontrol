@@ -1,4 +1,4 @@
-# Changelog — MCC Lite
+# Changelog — MCC
 
 ## 2026-04-13 — Guardian → MCC branding cleanup
 

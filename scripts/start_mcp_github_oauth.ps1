@@ -35,4 +35,4 @@ $env:MCP_OAUTH_CLIENT_SECRET = $ClientSecret
 $env:MCP_OAUTH_SCOPES = "read:user,user:email"
 $env:MCP_PORT = "$Port"
 
-py -3 .\scripts\mcp_readonly_evoki.py
+py -3 .\scripts\mcp_server.py

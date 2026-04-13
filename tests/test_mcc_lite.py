@@ -1,4 +1,4 @@
-"""Smoke tests for MCC Lite server surface (no live MCP port)."""
+"""Smoke tests for MCC server surface (no live MCP port)."""
 
 from __future__ import annotations
 

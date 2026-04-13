@@ -35,7 +35,7 @@ Ausführlicher Datenfluss: siehe Anhang unten.
 • Alternative Auth-Modus 'bearer': Keys unter 'Bearer Keys' generieren,
   Token im Connector (Authorization: Bearer …).
 • Stack starten.
-• Öffentliche MCP-URL (Beispiel): https://mcp.evolution-ki.com/mcp
+• Öffentliche MCP-URL (Beispiel): https://dein-tunnel.example.com/mcp
 
 3) POLICY
 ---------
@@ -61,7 +61,7 @@ Ausführlicher Datenfluss: siehe Anhang unten.
 7) HINTERGRUND & PROJEKT
 ------------------------
 • Manifest, Werte, Ziel: https://modelcontextcontrol.io
-• MCC, Kosten, Live-Log: https://modelcontextcontrol.io
+• Quellcode: https://github.com/EvolutionKi/modelcontextcontrol
 • Kontakt/Support: contact@opendromeda.org
 
 8) SICHERHEITS-SPEZIFIKATION
@@ -130,7 +130,7 @@ g) Cloudflare-Tunnel
    Router Schwachstellen hat, kommt niemand direkt zum Server.
    Wie: Der Tunnel wird als Windows-Dienst betrieben und verbindet sich
    ausgehend mit Cloudflare. Eingehende Anfragen werden über die
-   öffentliche URL (z. B. mcp.evolution-ki.com) durch den Tunnel geleitet.
+   öffentliche URL (z. B. dein-tunnel.example.com) durch den Tunnel geleitet.
 
 --- NEUE SCHUTZMECHANISMEN (Security Hardening) ---
 
@@ -196,7 +196,7 @@ q) Priorisierte Dateisuche
    Warum: Liefert relevantere Ergebnisse und verhindert, dass der Server
    minutenlang durch Hunderttausende alter Dateien sucht.
 
-Quellcode und Werte: https://modelcontextcontrol.io
+Quellcode: https://github.com/EvolutionKi/modelcontextcontrol
 Kostenlos, quelloffen, prüfbar.
 
 ANHANG – Datenfluss (für Interessierte)

@@ -1459,7 +1459,7 @@ class MCCApp(tk.Tk):
         tunnel_frame.pack(fill=tk.X, expand=False, pady=6)
         ttk.Label(
             tunnel_frame,
-            text="Optional: Cloudflare Tunnel oder anderen Dienst lokal betreiben — nicht Teil von MCC Lite.",
+            text="Optional: Cloudflare Tunnel oder anderen Dienst lokal betreiben — nicht Teil von MCC.",
         ).pack(anchor=tk.W)
         ttk.Label(tunnel_frame, text=t("tunnel_default_hint")).pack(anchor=tk.W)
         svc_row = ttk.Frame(tunnel_frame)
@@ -2376,7 +2376,7 @@ class MCCApp(tk.Tk):
         search_ok = False
         search_detail = ""
         try:
-            for name in ("README.md", "README_CURSOR_START_HERE.md", "requirements.txt", "Visions.txt"):
+            for name in ("README.md", "ARCHITECTURE.md", "requirements.txt", "Visions.txt"):
                 p = BASE_DIR / name
                 if p.is_file():
                     search_ok = True
@@ -3330,7 +3330,7 @@ class MCCApp(tk.Tk):
         except Exception as exc:
             self._ops(f"(Log konnte nicht gelesen werden: {exc})")
 
-    def _kill_stale_mcp_readonly_processes(self) -> None:
+    def _kill_stale_mcp_processes(self) -> None:
         """Beendet Prozesse, deren Kommandozeile ``mcp_server.py`` enthält.
 
         Wichtig: Der Start erfolgt oft als ``py -3 …\\mcp_server.py`` (Prozessname **py.exe**,
@@ -3396,7 +3396,7 @@ class MCCApp(tk.Tk):
                 f"Hinweis: Port {port} ist belegt (oft ein alter mcp_server.py ohne GUI). "
                 "Beende verwaiste MCP-Server-Prozesse …"
             )
-            self._kill_stale_mcp_readonly_processes()
+            self._kill_stale_mcp_processes()
             time.sleep(0.7)
             if self._check_port_open(port):
                 self._ops(
@@ -3520,7 +3520,7 @@ class MCCApp(tk.Tk):
         return u or ""
 
     def start_tunnel(self) -> None:
-        self._ops("Tunnel: optionaler externer Dienst — nicht Teil von MCC Lite.")
+        self._ops("Tunnel: optionaler externer Dienst — nicht Teil von MCC.")
 
     def update_tunnel_url(self) -> None:
         base = self.public_url_var.get().strip().rstrip("/")

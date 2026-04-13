@@ -43,16 +43,16 @@ The MCP ecosystem is large and growing; many local installs have **no** governan
 
 ---
 
-## MCC Lite (this repository)
+## MCC (this repository)
 
-MCC **Lite** is the **local policy and logging layer** for MCP **file** tools in this repo: it runs beside your client and enforces **roots**, **read/write mode**, and **blocklists** before file operations execute.
+MCC is the **local policy and logging layer** for MCP **file** tools in this repo: it runs beside your client and enforces **roots**, **read/write mode**, and **blocklists** before file operations execute.
 
-## What MCC Lite does **not** do
+## What MCC does **not** do
 
 - **No cloud trust by default:** Public tunnel URLs are optional; the default is localhost only.
-- **No shell execution:** `run_terminal_command` is **not** part of MCC Lite.
-- **No hourly context/cowork scans:** `run_kontext_cowork_hourly` is **not** part of MCC Lite (reserved for extended editions).
-- **No automated Python script execution:** The MCC GUI does not run scheduled or on-demand Python scripts from the policy (removed from MCC Lite).
+- **No shell execution:** `run_terminal_command` is **not** part of MCC.
+- **No hourly context/cowork scans:** `run_kontext_cowork_hourly` is **not** part of MCC (reserved for extended editions).
+- **No automated Python script execution:** The MCC GUI does not run scheduled or on-demand Python scripts from the policy (removed from MCC).
 - **No automatic wide-open disks:** The server default policy uses **empty roots** until you configure them. The **bundled** `config/mcp_policy.json` in this repo may ship wider example roots (e.g. drive letters) for developer setups — treat it as a template, not the strict public default.
 - **No recovery of your master password:** The keystore is encrypted locally; lost passwords cannot be reset by the vendor.
 
@@ -72,7 +72,7 @@ See [`README.md`](README.md) for the German project overview.
 
 ## Reserved policy fields
 
-The following fields may appear in policies migrated from future MCC editions but are **silently ignored by MCC Lite**: `sqlite_mcp`, `gemini_cli`, `github_mcp`, `git`, `at_mention`. Lite only enforces the file-tool surface (`roots`, `permissions`, `blocked`, `tool_registry`, `rate_limit`, `client_blocklist`, `advanced.*`).
+The following fields may appear in policies migrated from future MCC editions but are **silently ignored by MCC**: `sqlite_mcp`, `gemini_cli`, `github_mcp`, `git`, `at_mention`. MCC only enforces the file-tool surface (`roots`, `permissions`, `blocked`, `tool_registry`, `rate_limit`, `client_blocklist`, `advanced.*`).
 
 ## Origin
 

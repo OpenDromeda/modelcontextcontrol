@@ -1,4 +1,4 @@
-# MCC Lite Architecture
+# MCC Architecture
 
 ## Project structure
 

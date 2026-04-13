@@ -28,8 +28,7 @@ _STR: dict[str, dict[str, str]] = {
         "first_run_intro": (
             "MCC (Model Context Control) schränkt MCP-Dateizugriff per Policy ein.\n\n"
             "Standard: read_only, Sie legen Roots und Schreibpfade bewusst fest.\n"
-            "Terminal- und Kontext-Stunden-Tools sind in MCC nicht enthalten.\n\n"
-            "Bitte die Hinweise in README_CURSOR_START_HERE.md lesen.\n"
+            "Terminal- und Kontext-Stunden-Tools sind in MCC nicht enthalten."
         ),
         "first_run_checkbox": "Ich habe verstanden, dass ohne freigegebene Roots kein Zugriff möglich ist.",
         "first_run_continue": "Weiter",
@@ -102,8 +101,7 @@ _STR: dict[str, dict[str, str]] = {
         "first_run_intro": (
             "MCC (Model Context Control) enforces MCP file access via policy.\n\n"
             "Default: read_only; you explicitly configure roots and write paths.\n"
-            "Terminal and hourly context tools are not part of MCC.\n\n"
-            "Please read README_CURSOR_START_HERE.md.\n"
+            "Terminal and hourly context tools are not part of MCC."
         ),
         "first_run_checkbox": "I understand that without configured roots there is no access.",
         "first_run_continue": "Continue",
