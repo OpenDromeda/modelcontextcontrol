@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-PORTS = {8765, 8766, 20242}
+PORTS = {8765, 8766}
 
 
 def _run(cmd: list[str]) -> str:

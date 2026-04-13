@@ -22,7 +22,7 @@ PORT = int(os.environ.get("SMOKE_MCP_PORT", "18766"))
 def main() -> int:
     pol = ROOT / "config" / "mcp_policy.json"
     if not pol.is_file():
-        print("SMOKE: fehlt", pol, file=sys.stderr)
+        print("SMOKE: missing", pol, file=sys.stderr)
         return 2
 
     env = os.environ.copy()
@@ -61,7 +61,7 @@ def main() -> int:
         tcp_ok = False
         while time.monotonic() < deadline:
             if proc.poll() is not None:
-                print("SMOKE: Server-Prozess beendet mit", proc.returncode, file=sys.stderr)
+                print("SMOKE: Server process exited with", proc.returncode, file=sys.stderr)
                 if err_tail:
                     print("".join(err_tail)[-4000:], file=sys.stderr)
                 return 2
@@ -73,7 +73,7 @@ def main() -> int:
                 time.sleep(0.5)
 
         if not tcp_ok:
-            print("SMOKE: Kein TCP auf Port", PORT, file=sys.stderr)
+            print("SMOKE: No TCP on port", PORT, file=sys.stderr)
             if err_tail:
                 print("".join(err_tail)[-4000:], file=sys.stderr)
             return 2

@@ -68,11 +68,11 @@ MCC **Lite** is the **local policy and logging layer** for MCP **file** tools in
 | `MCC_LOCALE` | GUI language: `de` or `en` (fallback if no saved UI locale) |
 | `ui_locale` in `config/mcc_ui.json` | Persisted GUI language (`de` / `en`), set via **View → Language** in MCC |
 
-See [`README.md`](README.md) (German project overview) and `README_CURSOR_START_HERE.md` for the maintainer workflow and release gate.
+See [`README.md`](README.md) for the German project overview.
 
 ## Reserved policy fields
 
-The following fields may appear in policies migrated from future MCC editions but are **silently ignored by MCC Lite**: `sqlite_mcp`, `gemini_cli`, `github_mcp`, `git`, `at_mention`. Lite only enforces the file-tool surface (`roots`, `permissions`, `blocked`, `tool_registry`, `rate_limit`, `client_blocklist`, `advanced.*`, `honeypot`).
+The following fields may appear in policies migrated from future MCC editions but are **silently ignored by MCC Lite**: `sqlite_mcp`, `gemini_cli`, `github_mcp`, `git`, `at_mention`. Lite only enforces the file-tool surface (`roots`, `permissions`, `blocked`, `tool_registry`, `rate_limit`, `client_blocklist`, `advanced.*`).
 
 ## Origin
 

@@ -52,11 +52,11 @@ Die meisten lokalen Installationen verfügen über **keine** Governance-Ebene.
 
 ---
 
-**Dieses Repository** enthält **MCC Lite**: die lokale Referenzimplementierung mit MCC-Oberfläche, Policy-JSON und MCP-Server-Oberfläche für Datei-Werkzeuge. Technische Details und Release-Gate: [`README_CURSOR_START_HERE.md`](README_CURSOR_START_HERE.md) · englische Kurzfassung: [`README_EN.md`](README_EN.md).
+**Dieses Repository** enthält **MCC Lite**: die lokale Referenzimplementierung mit MCC-Oberfläche, Policy-JSON und MCP-Server-Oberfläche für Datei-Werkzeuge. Englische Kurzfassung: [`README_EN.md`](README_EN.md).
 
 ## Reservierte Policy-Felder
 
-Folgende Felder können in Policies aus zukünftigen MCC-Editionen vorkommen, werden von **MCC Lite aber stillschweigend ignoriert**: `sqlite_mcp`, `gemini_cli`, `github_mcp`, `git`, `at_mention`. Lite setzt nur die Datei-Tool-Schicht durch (`roots`, `permissions`, `blocked`, `tool_registry`, `rate_limit`, `client_blocklist`, `advanced.*`, `honeypot`).
+Folgende Felder können in Policies aus zukünftigen MCC-Editionen vorkommen, werden von **MCC Lite aber stillschweigend ignoriert**: `sqlite_mcp`, `gemini_cli`, `github_mcp`, `git`, `at_mention`. Lite setzt nur die Datei-Tool-Schicht durch (`roots`, `permissions`, `blocked`, `tool_registry`, `rate_limit`, `client_blocklist`, `advanced.*`).
 
 ## Herkunft
 
