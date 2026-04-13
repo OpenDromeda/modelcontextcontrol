@@ -66,7 +66,8 @@ QUICK REFERENCE
 7. Where to read more
    - HILFE.md — full German documentation
    - README_EN.md — project overview in English
-   - README_CURSOR_START_HERE.md — maintainer workflow
+   - https://modelcontextcontrol.io — community site
 
 8. Reporting issues
    - https://github.com/EvolutionKi/modelcontextcontrol
+   - contact@opendromeda.org

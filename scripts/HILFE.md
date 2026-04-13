@@ -60,8 +60,9 @@ Ausführlicher Datenfluss: siehe Anhang unten.
 
 7) HINTERGRUND & PROJEKT
 ------------------------
-• Manifest, Werte, Ziel: https://evolution-ki.com
-• MCC, Kosten, Live-Log: https://evolution-ki.com/projekt
+• Manifest, Werte, Ziel: https://modelcontextcontrol.io
+• MCC, Kosten, Live-Log: https://modelcontextcontrol.io
+• Kontakt/Support: contact@opendromeda.org
 
 8) SICHERHEITS-SPEZIFIKATION
 ============================
@@ -195,7 +196,7 @@ q) Priorisierte Dateisuche
    Warum: Liefert relevantere Ergebnisse und verhindert, dass der Server
    minutenlang durch Hunderttausende alter Dateien sucht.
 
-Quellcode und Werte: https://evolution-ki.com
+Quellcode und Werte: https://modelcontextcontrol.io
 Kostenlos, quelloffen, prüfbar.
 
 ANHANG – Datenfluss (für Interessierte)
