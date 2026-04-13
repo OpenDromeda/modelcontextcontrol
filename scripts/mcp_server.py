@@ -52,7 +52,7 @@ RATE_STATE_PATH = CONFIG_DIR / "rate_state.json"
 SESSION_ID = uuid.uuid4().hex
 
 def _load_startup_secrets() -> dict[str, Any]:
-    """OAuth/Bearer-Startwerte: zuerst ``MCP_SECRETS_FILE`` (Guardian), sonst stdin (Legacy)."""
+    """OAuth/Bearer-Startwerte: zuerst ``MCP_SECRETS_FILE`` (MCC), sonst stdin (Legacy)."""
     path = (os.getenv("MCP_SECRETS_FILE") or "").strip()
     if path:
         p = Path(path)
@@ -422,7 +422,7 @@ def _check_policy_integrity_or_deny(
 
 
 def _write_policy_integrity_startup_marker(payload: dict[str, Any]) -> None:
-    """Persistenter Nachweis für Guardian-Selbsttest (Punkt 17): Startup-Hashes."""
+    """Persistenter Nachweis für MCC-Selbsttest (Punkt 17): Startup-Hashes."""
     try:
         out = CONFIG_DIR / "policy_integrity_startup.json"
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)

@@ -98,7 +98,7 @@ def _frozen_app_base_dir() -> Path:
     neben `config/` liegt oder nur auf dem Desktop kopiert wurde (dann wäre
     `parent.parent` oft der falsche Ort). Reihenfolge:
 
-    1. Umgebungsvariable ``MCC_GUARDIAN_BASE`` oder ``MCC_BASE_DIR``
+    1. Umgebungsvariable ``MCC_BASE`` oder ``MCC_BASE_DIR``
     2. ``exe_dir/config`` existiert → portable Installation (EXE + config im selben Ordner)
     3. ``exe_dir/../config`` existiert → klassisches Repo-Layout (z. B. ``dist/*.exe``)
     4. EXE unter ``…/scripts/dist/`` und ``…/config`` existiert (z. B. ``src/config``) →
@@ -108,7 +108,7 @@ def _frozen_app_base_dir() -> Path:
     """
     exe_path = Path(sys.executable).resolve()
     env_override = (
-        os.environ.get("MCC_GUARDIAN_BASE")
+        os.environ.get("MCC_BASE")
         or os.environ.get("MCC_BASE_DIR")
         or ""
     ).strip()
@@ -140,7 +140,7 @@ EXPORT_COUNTER_FILE = CONFIG_DIR / "export_counter.json"
 KEYSTORE_PATH = CONFIG_DIR / "keystore.enc"
 SALT_PATH = CONFIG_DIR / "keystore.salt"
 BLOCKED_IPS_FILE = CONFIG_DIR / "blocked_ips.json"
-HEALTH_LOG_FILE = LOG_DIR / "guardian_health.jsonl"
+HEALTH_LOG_FILE = LOG_DIR / "mcc_health.jsonl"
 
 # Interne Tab-Schlüssel → i18n (BUG-018)
 _SECTION_LABEL_KEYS: dict[str, str] = {
@@ -154,8 +154,8 @@ _SECTION_LABEL_KEYS: dict[str, str] = {
 }
 
 
-def _bootstrap_ui_locale_from_guardian_json() -> None:
-    p = CONFIG_DIR / "guardian_ui.json"
+def _bootstrap_ui_locale() -> None:
+    p = CONFIG_DIR / "mcc_ui.json"
     if not p.is_file():
         return
     try:
@@ -281,7 +281,7 @@ _AUTH_MODE_HINTS_DE: dict[str, str] = {
 }
 
 
-class GuardianControlCenter(tk.Tk):
+class MCCApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self._locale_menu_var = tk.StringVar(value="de")
@@ -356,7 +356,7 @@ class GuardianControlCenter(tk.Tk):
         self._oauth_secret_rotated_iso = ""
 
         self._ensure_dirs()
-        _bootstrap_ui_locale_from_guardian_json()
+        _bootstrap_ui_locale()
         self._locale_menu_var.set(mcc_locale())
         self.title(t("app_title"))
         self._ensure_policy()
@@ -369,7 +369,7 @@ class GuardianControlCenter(tk.Tk):
         self._build_ui()
         self._hydrate_oauth_from_keystore()
         self._apply_theme()
-        self._load_guardian_ui_settings()
+        self._load_ui_settings()
         self._bind_keyboard_shortcuts()
         self.load_policy_to_ui()
         self.refresh_monitor()
@@ -573,7 +573,7 @@ class GuardianControlCenter(tk.Tk):
             code = loc_codes.get(loc_display.get(), "de")
             set_ui_locale(code)
             self._locale_menu_var.set(code)
-            self._save_guardian_ui_settings()
+            self._save_ui_settings()
             try:
                 flag.write_text(datetime.now(timezone.utc).isoformat(), encoding="utf-8")
             except OSError:
@@ -810,7 +810,7 @@ class GuardianControlCenter(tk.Tk):
             return
         set_ui_locale(c)
         self._locale_menu_var.set(c)
-        self._save_guardian_ui_settings()
+        self._save_ui_settings()
         self._reapply_visible_locale()
 
     def _reapply_visible_locale(self) -> None:
@@ -1009,7 +1009,7 @@ class GuardianControlCenter(tk.Tk):
             self._mon_time_minutes.set(0)
             self._mon_show_full_paths.set(False)
             self._suppress_mon_persist = False
-            self._save_guardian_ui_settings()
+            self._save_ui_settings()
             self.refresh_monitor()
 
         def _mon_only_denied() -> None:
@@ -1024,7 +1024,7 @@ class GuardianControlCenter(tk.Tk):
         def _persist_mon(*_a: object) -> None:
             if getattr(self, "_suppress_mon_persist", False):
                 return
-            self._save_guardian_ui_settings()
+            self._save_ui_settings()
 
         for v in (
             self._mon_filter_tool,
@@ -1326,7 +1326,7 @@ class GuardianControlCenter(tk.Tk):
             self,
             _pub_entry,
             "Öffentliche Basis-URL (z. B. Cloudflare-Tunnel), ohne abschließenden Slash. "
-            "Wird in config/guardian_ui.json gespeichert und beim Start wieder geladen.",
+            "Wird in config/mcc_ui.json gespeichert und beim Start wieder geladen.",
         )
         ttk.Button(
             oauth_row1,
@@ -1429,7 +1429,7 @@ class GuardianControlCenter(tk.Tk):
             )
             if getattr(self, "_suppress_pub_url_persist", False):
                 return
-            self._save_guardian_ui_settings()
+            self._save_ui_settings()
 
         self.public_url_var.trace_add("write", _on_public_url_changed)
         cb_entry = ttk.Entry(oauth_row4, textvariable=self.callback_var, width=58, state="readonly")
@@ -1740,7 +1740,7 @@ class GuardianControlCenter(tk.Tk):
             messagebox.showerror("Keystore", f"Speichern fehlgeschlagen:\n{exc}")
             return
         self._oauth_secret_rotated_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self._save_guardian_ui_settings()
+        self._save_ui_settings()
         self._sync_oauth_rotation_label()
         self.status_var.set("Status: OAuth-Daten im Keystore gespeichert")
         messagebox.showinfo("Keystore", "Client ID und Secret wurden verschlüsselt gespeichert.")
@@ -1818,7 +1818,7 @@ class GuardianControlCenter(tk.Tk):
         log_bar.pack(fill=tk.X, pady=(0, 4))
         ttk.Label(
             log_bar,
-            text="„Anzeige leeren“ betrifft nur dieses Textfeld – nicht guardian_health.jsonl oder andere Dateien.",
+            text="„Anzeige leeren“ betrifft nur dieses Textfeld – nicht mcc_health.jsonl oder andere Dateien.",
             foreground="#555",
         ).pack(side=tk.LEFT, anchor=tk.W)
         ttk.Button(log_bar, text="Anzeige leeren", command=self._clear_ops_log_ui_only).pack(side=tk.RIGHT)
@@ -1903,7 +1903,7 @@ class GuardianControlCenter(tk.Tk):
                 ttk.Spinbox(p, from_=1, to=120, width=5, textvariable=self._adv_auto_lock_min),
             )[-1],
             self._risk_labels,
-            "Sperrt die Guardian-Oberfläche nach Inaktivität. Schützt davor, dass jemand im Vorbeigehen "
+            "Sperrt die MCC-Oberfläche nach Inaktivität. Schützt davor, dass jemand im Vorbeigehen "
             "Einstellungen oder Schlüssel sieht. Erfordert KEINE erneute Passworteingabe.")
 
         rl_log = setting_row(container, "Alte Logs automatisch löschen",
@@ -2614,7 +2614,7 @@ class GuardianControlCenter(tk.Tk):
         target = filedialog.asksaveasfilename(
             title="Hilfe speichern",
             initialdir=str(EXPORT_DIR),
-            initialfile="mcc_guardian_hilfe.txt",
+            initialfile="mcc_hilfe.txt",
             defaultextension=".txt",
             filetypes=[("Text", "*.txt")],
         )
@@ -2647,11 +2647,11 @@ class GuardianControlCenter(tk.Tk):
         except Exception:
             return dict(DEFAULT_POLICY)
 
-    def _guardian_ui_settings_path(self) -> Path:
-        return CONFIG_DIR / "guardian_ui.json"
+    def _ui_settings_path(self) -> Path:
+        return CONFIG_DIR / "mcc_ui.json"
 
-    def _load_guardian_ui_settings(self) -> None:
-        p = self._guardian_ui_settings_path()
+    def _load_ui_settings(self) -> None:
+        p = self._ui_settings_path()
         if not p.is_file():
             return
         try:
@@ -2694,10 +2694,10 @@ class GuardianControlCenter(tk.Tk):
         finally:
             self._suppress_mon_persist = False
 
-    def _save_guardian_ui_settings(self) -> None:
+    def _save_ui_settings(self) -> None:
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            p = self._guardian_ui_settings_path()
+            p = self._ui_settings_path()
             data: dict[str, Any] = {}
             if p.is_file():
                 try:
@@ -2726,8 +2726,8 @@ class GuardianControlCenter(tk.Tk):
             pass
 
     def _save_public_base_url_ui(self) -> None:
-        self._save_guardian_ui_settings()
-        self.status_var.set("Status: Public Base URL in guardian_ui.json gespeichert")
+        self._save_ui_settings()
+        self.status_var.set("Status: Public Base URL in mcc_ui.json gespeichert")
 
     def _update_auth_mode_hint(self) -> None:
         if not hasattr(self, "_auth_mode_hint_var"):
@@ -2766,7 +2766,7 @@ class GuardianControlCenter(tk.Tk):
     def _oauth_connectivity_test(self) -> None:
         lines: list[str] = []
         try:
-            req = urllib.request.Request("https://github.com", headers={"User-Agent": "MCC-Guardian-OAuth-Test/1.0"})
+            req = urllib.request.Request("https://github.com", headers={"User-Agent": "MCC-OAuth-Test/1.0"})
             with urllib.request.urlopen(req, timeout=12) as resp:
                 lines.append(f"github.com erreichbar (HTTP {resp.status}).")
         except Exception as exc:
@@ -2797,7 +2797,7 @@ class GuardianControlCenter(tk.Tk):
         )
         auth_url = f"https://github.com/login/oauth/authorize?{q}"
         try:
-            req2 = urllib.request.Request(auth_url, headers={"User-Agent": "MCC-Guardian-OAuth-Test/1.0"})
+            req2 = urllib.request.Request(auth_url, headers={"User-Agent": "MCC-OAuth-Test/1.0"})
             with urllib.request.urlopen(req2, timeout=20) as resp2:
                 lines.append(f"authorize-URL: HTTP {resp2.status} (Redirects von urllib ggf. gefolgt).")
         except urllib.error.HTTPError as he:
@@ -3007,14 +3007,14 @@ class GuardianControlCenter(tk.Tk):
                 "mcp_path": self.path_var.get().strip(),
             },
         }
-        gu = self._guardian_ui_settings_path()
+        gu = self._ui_settings_path()
         if gu.is_file():
             try:
-                snap["guardian_ui"] = json.loads(gu.read_text(encoding="utf-8"))
+                snap["mcc_ui"] = json.loads(gu.read_text(encoding="utf-8"))
             except Exception:
-                snap["guardian_ui"] = {}
+                snap["mcc_ui"] = {}
         else:
-            snap["guardian_ui"] = {}
+            snap["mcc_ui"] = {}
         if BLOCKED_IPS_FILE.is_file():
             try:
                 snap["blocked_ips"] = json.loads(BLOCKED_IPS_FILE.read_text(encoding="utf-8"))
@@ -3039,13 +3039,13 @@ class GuardianControlCenter(tk.Tk):
                 self.host_var.set(str(listen["mcp_host"]).strip())
             if listen.get("mcp_path"):
                 self.path_var.set(str(listen["mcp_path"]).strip())
-        gui = data.get("guardian_ui")
+        gui = data.get("mcc_ui")
         if isinstance(gui, dict):
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            self._guardian_ui_settings_path().write_text(
+            self._ui_settings_path().write_text(
                 json.dumps(gui, indent=2, ensure_ascii=False), encoding="utf-8"
             )
-            self._load_guardian_ui_settings()
+            self._load_ui_settings()
         bi = data.get("blocked_ips")
         if isinstance(bi, dict):
             BLOCKED_IPS_FILE.write_text(json.dumps(bi, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -3265,7 +3265,7 @@ class GuardianControlCenter(tk.Tk):
     def _server_command(self):
         env = os.environ.copy()
         _base = str(BASE_DIR)
-        env["MCC_GUARDIAN_BASE"] = _base
+        env["MCC_BASE"] = _base
         env["MCC_BASE_DIR"] = _base
         env["PYTHONUNBUFFERED"] = "1"
         env["MCP_POLICY_FILE"] = str(POLICY_FILE)
@@ -3843,7 +3843,7 @@ class GuardianControlCenter(tk.Tk):
         self._ops("Starte EXE-Build ...")
         bat = BASE_DIR / "build_mcc.bat"
         if not bat.is_file():
-            bat = BASE_DIR / "scripts" / "build_guardian_app.bat"
+            bat = BASE_DIR / "scripts" / "build_mcc.bat"
         result = subprocess.run(
             ["cmd", "/c", str(bat)],
             cwd=str(BASE_DIR),
@@ -3999,7 +3999,7 @@ class GuardianControlCenter(tk.Tk):
         self.after(3000, self._auto_refresh)
 
     def _on_close(self) -> None:
-        self._save_guardian_ui_settings()
+        self._save_ui_settings()
         if not self._disconnect_called:
             out = self._auto_export("shutdown")
             self.stop_stack()
@@ -4008,6 +4008,6 @@ class GuardianControlCenter(tk.Tk):
 
 
 if __name__ == "__main__":
-    app = GuardianControlCenter()
+    app = MCCApp()
     if getattr(app, "_app_ready", False):
         app.mainloop()

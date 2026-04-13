@@ -11,7 +11,7 @@ bei Bedarf die jeweilige Herstellerdokumentation.
 
 ÜBERBLICK
 ---------
-Der Guardian startet den FastMCP-Server (Standard-Port 8766). Zugriffe werden
+MCC startet den FastMCP-Server (Standard-Port 8766). Zugriffe werden
 protokolliert (tägliche Log-Datei mcp_access_YYYYMMDD.jsonl).
 Typischer Weg für Claude: OAuth über GitHub (Client-ID/Secret im Keystore speicherbar).
 Alternativ: Bearer-Token pro Client (Codex/ChatGPT) – ebenfalls im Keystore.
@@ -61,12 +61,12 @@ Ausführlicher Datenfluss: siehe Anhang unten.
 7) HINTERGRUND & PROJEKT
 ------------------------
 • Manifest, Werte, Ziel: https://evolution-ki.com
-• Guardian, Kosten, Live-Log: https://evolution-ki.com/projekt
+• MCC, Kosten, Live-Log: https://evolution-ki.com/projekt
 
 8) SICHERHEITS-SPEZIFIKATION
 ============================
-Diese Spezifikation beschreibt alle Sicherheitsmaßnahmen des Guardian.
-Ziel: Du sollst nachvollziehen können, was der Guardian tut und warum –
+Diese Spezifikation beschreibt alle Sicherheitsmaßnahmen von MCC.
+Ziel: Du sollst nachvollziehen können, was MCC tut und warum –
 ohne Programmierkenntnisse. Der Quellcode ist quelloffen und prüfbar.
 
 --- BESTEHENDE SCHUTZMECHANISMEN ---
@@ -169,7 +169,7 @@ m) Passwort-Hygiene
    den Arbeitsspeicher das Passwort auslesen könnte.
 
 n) Secrets ohne dauerhafte Umgebungsvariablen
-   Was: Geheimnisse (OAuth-Secret, Bearer-Keys) schreibt der Guardian in eine
+   Was: Geheimnisse (OAuth-Secret, Bearer-Keys) schreibt MCC in eine
    kurzlebige Datei (Pfad nur in MCP_SECRETS_FILE); der MCP-Prozess liest sie
    beim Start und löscht sie danach. Kein MCP_OAUTH_CLIENT_SECRET in der
    dauerhaften Umgebung.
@@ -185,7 +185,7 @@ o) Persistentes Rate-Limiting
 p) Pfad-Normalisierung
    Was: Windows erlaubt verschiedene Schreibweisen für denselben Pfad
    (z.B. Kurznamen wie PROGRA~1, versteckte Datenströme, Netzwerkpfade).
-   Der Guardian erkennt und blockiert solche Tricks.
+   MCC erkennt und blockiert solche Tricks.
    Warum: Verhindert, dass Blocklisten durch alternative Pfadformate
    umgangen werden.
 
@@ -202,7 +202,7 @@ ANHANG – Datenfluss (für Interessierte)
 =======================================
 ASCII-Überblick (vereinfacht; Pfade können je nach Setup variieren):
 
-  [ Dein PC – Guardian / FastMCP / Logs / Policy lokal ]
+  [ Dein PC – MCC / FastMCP / Logs / Policy lokal ]
            |
            |  cloudflared (Tunnel, ausgehende Verbindung)
            v

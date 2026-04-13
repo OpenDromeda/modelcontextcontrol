@@ -46,7 +46,7 @@ QUICK REFERENCE
      lists, tool registry, advanced settings)
    - keystore.enc + keystore.salt — encrypted bearer/OAuth secrets
    - blocked_ips.json — IP blocklist
-   - guardian_ui.json — GUI preferences (UI locale, monitor filters,
+   - mcc_ui.json — GUI preferences (UI locale, monitor filters,
      public base URL, OAuth secret rotation timestamp)
    - rate_state.json — rate limiting state
    - policy_integrity_startup.json — SHA256 baseline marker

@@ -17,7 +17,7 @@ config/keystore.enc
 config/keystore.salt
 config/blocked_ips.json
 config/rate_state.json
-config/guardian_ui.json
+config/mcc_ui.json
 config/policy_integrity_startup.json
 config/export_counter.json
 config/.mcc_first_run_ack

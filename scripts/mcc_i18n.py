@@ -1,4 +1,4 @@
-"""DE/EN UI strings for MCC Guardian (BUG-018: MCC_LOCALE / ui_locale in guardian_ui.json)."""
+"""DE/EN UI strings for MCC (BUG-018: MCC_LOCALE / ui_locale in mcc_ui.json)."""
 
 from __future__ import annotations
 
@@ -21,14 +21,14 @@ _STR: dict[str, dict[str, str]] = {
         ),
         "stack_start": "Stack starten",
         "stack_stop": "Stack stoppen",
-        "build_ok": "Build erfolgreich: dist/MCC_GUARDIAN_LITE.exe",
+        "build_ok": "Build erfolgreich: dist/MCC.exe",
         "build_fail": "Build fehlgeschlagen. Details im Betriebslog.",
         "tunnel_default_hint": "Optional: öffentliche Basis-URL (leer = nur lokal).",
         "first_run_title": "Willkommen bei MCC",
         "first_run_intro": (
             "MCC (Model Context Control) schränkt MCP-Dateizugriff per Policy ein.\n\n"
             "Standard: read_only, Sie legen Roots und Schreibpfade bewusst fest.\n"
-            "Terminal- und Kontext-Stunden-Tools sind in MCC Lite nicht enthalten.\n\n"
+            "Terminal- und Kontext-Stunden-Tools sind in MCC nicht enthalten.\n\n"
             "Bitte die Hinweise in README_CURSOR_START_HERE.md lesen.\n"
         ),
         "first_run_checkbox": "Ich habe verstanden, dass ohne freigegebene Roots kein Zugriff möglich ist.",
@@ -95,14 +95,14 @@ _STR: dict[str, dict[str, str]] = {
         ),
         "stack_start": "Start stack",
         "stack_stop": "Stop stack",
-        "build_ok": "Build successful: dist/MCC_GUARDIAN_LITE.exe",
+        "build_ok": "Build successful: dist/MCC.exe",
         "build_fail": "Build failed. See operations log.",
         "tunnel_default_hint": "Optional: public base URL (empty = local only).",
         "first_run_title": "Welcome to MCC",
         "first_run_intro": (
             "MCC (Model Context Control) enforces MCP file access via policy.\n\n"
             "Default: read_only; you explicitly configure roots and write paths.\n"
-            "Terminal and hourly context tools are not part of MCC Lite.\n\n"
+            "Terminal and hourly context tools are not part of MCC.\n\n"
             "Please read README_CURSOR_START_HERE.md.\n"
         ),
         "first_run_checkbox": "I understand that without configured roots there is no access.",
@@ -159,7 +159,7 @@ _STR: dict[str, dict[str, str]] = {
 
 
 def set_ui_locale(code: str | None) -> None:
-    """Persistente UI-Sprache (wird von guardian_ui.json geladen)."""
+    """Persistente UI-Sprache (wird von mcc_ui.json geladen)."""
     global _UI_LOCALE
     if code is None or str(code).strip() == "":
         _UI_LOCALE = None
