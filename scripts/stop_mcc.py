@@ -35,7 +35,7 @@ def _pids_from_netstat() -> set[int]:
 def _query_pids_from_powershell() -> set[int]:
     ps = (
         "$procs = Get-CimInstance Win32_Process | Where-Object {"
-        " ($_.Name -match '^python(\\.exe)?$' -and $_.CommandLine -like '*mcp_readonly_evoki.py*')"
+        " ($_.Name -match '^python(\\.exe)?$' -and $_.CommandLine -like '*mcp_server.py*')"
         " -or ($_.Name -ieq 'cloudflared.exe')"
         "};"
         "$procs | Select-Object -ExpandProperty ProcessId | ConvertTo-Json -Compress"
@@ -57,13 +57,13 @@ def _query_pids_from_powershell() -> set[int]:
 
 
 def main() -> None:
-    print("[EVOKI] Stoppe MCP/Tunnel Prozesse ...")
+    print("[MCC] Stoppe MCP/Tunnel Prozesse ...")
     targets = _pids_from_netstat() | _query_pids_from_powershell()
     for pid in sorted(targets):
         _kill_pid(pid)
 
     subprocess.run(["taskkill", "/F", "/IM", "cloudflared.exe"], capture_output=True, text=True, check=False)
-    print(f"[EVOKI] Stack gestoppt. Beendete Kandidaten: {len(targets)}")
+    print(f"[MCC] Stack gestoppt. Beendete Kandidaten: {len(targets)}")
 
 
 if __name__ == "__main__":

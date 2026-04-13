@@ -1,13 +1,26 @@
+.env
+.env.*
+*.pyc
+__pycache__/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.pytest_mcc_tmp/
+.mypy_cache/
+
+# Runtime config — user-specific, never commit
+config/mcp_policy.json
 config/keystore.enc
 config/keystore.salt
 config/blocked_ips.json
-config/GUARDIAN_CHAT_memory.db
 config/rate_state.json
+config/guardian_ui.json
+config/policy_integrity_startup.json
+config/export_counter.json
+config/.mcc_first_run_ack
+
+# Logs — access events, potentially sensitive
 logs/
-dist/
-build/
-__pycache__/
-*.pyc
-*.spec
-.env
-.env.*

@@ -1,9 +1,10 @@
 import base64
+import fnmatch
+import hashlib
 import json
 import os
 import secrets
 import shutil
-import subprocess
 import time
 import uuid
 from collections import defaultdict
@@ -20,20 +21,35 @@ from fastmcp.server.auth.providers.github import GitHubProvider
 from fastmcp.server.auth.providers.google import GoogleProvider
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-CONFIG_DIR = BASE_DIR / "config"
-LOG_DIR = BASE_DIR / "logs"
-DEFAULT_POLICY_PATH = CONFIG_DIR / "mcp_policy.json"
-KONTEXT_RUNNER_CONFIG_PATH = CONFIG_DIR / "mcp_kontext_runner.json"
-SESSION_ID = uuid.uuid4().hex
+def _mcc_home() -> Path:
+    return Path(os.environ.get("MCC_HOME", str(Path.home() / ".mcc"))).expanduser().resolve()
 
-_DEFAULT_KONTEXT_RUNNER: dict[str, Any] = {
-    "script_relative": "KONTEXT/scripts/cowork_kontext_hourly.py",
-    "timeout_seconds": 7200,
-    "max_output_chars_per_stream": 120_000,
-}
 
+def _resolve_policy_path() -> Path:
+    raw = (os.getenv("MCP_POLICY_FILE") or os.getenv("MCC_POLICY_PATH") or "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return (_mcc_home() / "config" / "mcp_policy.json").resolve()
+
+
+def _resolve_config_dir() -> Path:
+    return _resolve_policy_path().parent
+
+
+def _resolve_log_dir() -> Path:
+    raw = (os.getenv("MCC_LOG_DIR") or "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return (_mcc_home() / "logs").resolve()
+
+
+CONFIG_DIR = _resolve_config_dir()
+LOG_DIR = _resolve_log_dir()
+DEFAULT_POLICY_PATH = _resolve_policy_path()
+KEYSTORE_PATH = CONFIG_DIR / "keystore.enc"
+KEYSTORE_SALT_PATH = CONFIG_DIR / "keystore.salt"
 RATE_STATE_PATH = CONFIG_DIR / "rate_state.json"
+SESSION_ID = uuid.uuid4().hex
 
 def _load_startup_secrets() -> dict[str, Any]:
     """OAuth/Bearer-Startwerte: zuerst ``MCP_SECRETS_FILE`` (Guardian), sonst stdin (Legacy)."""
@@ -53,9 +69,9 @@ def _load_startup_secrets() -> dict[str, Any]:
                         if isinstance(loaded, dict):
                             return loaded
                     except json.JSONDecodeError as exc:
-                        print(f"EVOKI MCP: JSON in MCP_SECRETS_FILE ungültig: {exc}", file=_sys.stderr)
+                        print(f"MCC MCP: JSON in MCP_SECRETS_FILE invalid: {exc}", file=_sys.stderr)
         except OSError as exc:
-            print(f"EVOKI MCP: MCP_SECRETS_FILE konnte nicht gelesen werden: {exc}", file=_sys.stderr)
+            print(f"MCC MCP: MCP_SECRETS_FILE could not be read: {exc}", file=_sys.stderr)
         return {}
     try:
         if _sys.stdin is None or _sys.stdin.isatty():
@@ -67,10 +83,10 @@ def _load_startup_secrets() -> dict[str, Any]:
             loaded = json.loads(raw)
             return loaded if isinstance(loaded, dict) else {}
         except json.JSONDecodeError as exc:
-            print(f"EVOKI MCP: JSON von stdin ungültig: {exc}", file=_sys.stderr)
+            print(f"MCC MCP: JSON from stdin invalid: {exc}", file=_sys.stderr)
             return {}
     except Exception as exc:
-        print(f"EVOKI MCP: stdin lesen fehlgeschlagen: {exc}", file=_sys.stderr)
+        print(f"MCC MCP: stdin read failed: {exc}", file=_sys.stderr)
         return {}
 
 
@@ -91,7 +107,7 @@ def _access_log_path() -> Path:
 
 
 DEFAULT_POLICY: dict[str, Any] = {
-    "roots": ["C:/", "D:/", "J:/"],
+    "roots": [],
     "permissions": {
         "mode": "read_only",
         "write_allow_paths": [],
@@ -125,9 +141,16 @@ DEFAULT_POLICY: dict[str, Any] = {
         ],
         "suffixes": [
             ".env",
+            ".env.*",
             ".env.local",
             ".env.development",
             ".env.production",
+            ".env.staging",
+            ".env.test",
+            ".env.backup",
+            ".env.old",
+            ".env.sample",
+            ".env.example",
             ".key",
             ".pem",
             ".pfx",
@@ -150,6 +173,7 @@ DEFAULT_POLICY: dict[str, Any] = {
             "apikey",
             "api_key",
             "private_key",
+            ".env.",
         ],
     },
     # honeypot section intentionally absent from DEFAULT_POLICY
@@ -176,14 +200,14 @@ def _deep_merge(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any
 
 
 def _ensure_default_policy(path: Path) -> None:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         return
     path.write_text(json.dumps(DEFAULT_POLICY, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _load_policy() -> dict[str, Any]:
-    policy_path = Path(os.getenv("MCP_POLICY_FILE", str(DEFAULT_POLICY_PATH))).resolve()
+    policy_path = _resolve_policy_path()
     _ensure_default_policy(policy_path)
 
     try:
@@ -203,6 +227,363 @@ def _get_policy() -> dict[str, Any]:
     return _load_policy()
 
 
+# ── Policy-Integrität (SHA256 der Policy-Datei, Referenz beim ersten MCP-Request) ──
+_POLICY_INTEGRITY_BASELINE_HEX: str | None = None
+_POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC: str | None = None
+_POLICY_INTEGRITY_BASELINE_KEYSTORE_SALT: str | None = None
+_POLICY_INTEGRITY_LAST_VERIFY_MONO: float | None = None
+_POLICY_INTEGRITY_STARTUP_VERIFIED: bool = False
+_POLICY_INTEGRITY_STARTUP_AT_UTC: str | None = None
+_POLICY_INTEGRITY_STARTUP_ERROR: str = ""
+
+_INTEGRITY_TOOL_CATEGORY: dict[str, str] = {
+    "write_file": "write",
+    "create_directory": "write",
+    "delete_path": "write",
+    "read_file": "read",
+    "list_directory": "read",
+    "search_files": "read",
+    "list_roots": "read",
+    "policy_snapshot": "read",
+}
+
+
+def _policy_path_resolved() -> Path:
+    return _resolve_policy_path()
+
+
+def _policy_integrity_config(pol: dict[str, Any]) -> dict[str, Any]:
+    adv = pol.get("advanced") if isinstance(pol.get("advanced"), dict) else {}
+    pi = adv.get("policy_integrity")
+    if not isinstance(pi, dict):
+        return {
+            "enabled": True,
+            "scope": "selective",
+            "categories": ["write", "exec"],
+            "interval_minutes": 5,
+            "include_keystore_files": True,
+        }
+    scope_raw = pi.get("scope")
+    scope = scope_raw if scope_raw in ("all", "selective", "all_interval") else "selective"
+    try:
+        interval_minutes = int(pi.get("interval_minutes", 0))
+    except (TypeError, ValueError):
+        interval_minutes = 0
+    if scope == "all_interval" and interval_minutes < 1:
+        interval_minutes = 5
+    out = {
+        "enabled": bool(pi.get("enabled", True)),
+        "scope": scope,
+        "categories": pi.get("categories") if isinstance(pi.get("categories"), list) else ["write", "exec"],
+        "interval_minutes": interval_minutes,
+        "include_keystore_files": bool(pi.get("include_keystore_files", True)),
+    }
+    if not out["categories"]:
+        out["categories"] = ["write", "exec"]
+    return out
+
+
+def _sha256_file_or_empty(path: Path) -> str:
+    """SHA256 der Rohbytes; fehlende Datei → leerer String (fester Sentinel)."""
+    try:
+        if path.is_file():
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        pass
+    return ""
+
+
+def _ensure_keystore_integrity_baseline_lazy(cfg: dict[str, Any]) -> None:
+    """Setzt Keystore-/Salt-Baseline beim ersten Check, falls Policy zuvor ohne Keystore-Scope startete."""
+    global _POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC, _POLICY_INTEGRITY_BASELINE_KEYSTORE_SALT
+    if not cfg.get("include_keystore_files", True):
+        return
+    if _POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC is not None:
+        return
+    _POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC = _sha256_file_or_empty(KEYSTORE_PATH)
+    _POLICY_INTEGRITY_BASELINE_KEYSTORE_SALT = _sha256_file_or_empty(KEYSTORE_SALT_PATH)
+
+
+def _ensure_policy_integrity_baseline(pol: dict[str, Any]) -> None:
+    global _POLICY_INTEGRITY_BASELINE_HEX
+    global _POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC, _POLICY_INTEGRITY_BASELINE_KEYSTORE_SALT
+    cfg = _policy_integrity_config(pol)
+    if not cfg.get("enabled", True):
+        return
+    if _POLICY_INTEGRITY_BASELINE_HEX is not None:
+        return
+    path = _policy_path_resolved()
+    try:
+        _POLICY_INTEGRITY_BASELINE_HEX = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        pass
+    if cfg.get("include_keystore_files", True):
+        _POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC = _sha256_file_or_empty(KEYSTORE_PATH)
+        _POLICY_INTEGRITY_BASELINE_KEYSTORE_SALT = _sha256_file_or_empty(KEYSTORE_SALT_PATH)
+    else:
+        _POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC = None
+        _POLICY_INTEGRITY_BASELINE_KEYSTORE_SALT = None
+
+
+def _policy_integrity_applies_to_tool(tool: str, cfg: dict[str, Any]) -> bool:
+    if cfg.get("scope") in ("all", "all_interval"):
+        return True
+    cat = _INTEGRITY_TOOL_CATEGORY.get(tool, "other")
+    categories = {str(c).lower() for c in (cfg.get("categories") or [])}
+    if cat == "other":
+        return "other" in categories
+    return cat in categories
+
+
+def _check_policy_integrity_or_deny(
+    tool: str,
+    pol: dict[str, Any],
+    ctx: Context | None,
+    args: dict,
+) -> None:
+    global _POLICY_INTEGRITY_LAST_VERIFY_MONO
+    cfg = _policy_integrity_config(pol)
+    if not cfg.get("enabled", True):
+        return
+    _ensure_policy_integrity_baseline(pol)
+    if _POLICY_INTEGRITY_BASELINE_HEX is None:
+        return
+    if not _policy_integrity_applies_to_tool(tool, cfg):
+        return
+    if cfg.get("scope") == "all_interval":
+        try:
+            interval_min = int(cfg.get("interval_minutes") or 5)
+        except (TypeError, ValueError):
+            interval_min = 5
+        if interval_min < 1:
+            interval_min = 1
+        if _POLICY_INTEGRITY_LAST_VERIFY_MONO is not None:
+            if (time.monotonic() - _POLICY_INTEGRITY_LAST_VERIFY_MONO) < interval_min * 60:
+                return
+    path = _policy_path_resolved()
+    try:
+        current = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        _deny(
+            tool,
+            f"Policy file not readable: {exc}",
+            args,
+            ctx,
+            deny_detail="policy_integrity_read_error",
+        )
+    if current != _POLICY_INTEGRITY_BASELINE_HEX:
+        _deny(
+            tool,
+            "Policy file changed since server start (SHA256 integrity). Please restart MCP.",
+            args,
+            ctx,
+            deny_detail="policy_integrity_mismatch",
+        )
+    if cfg.get("include_keystore_files", True):
+        _ensure_keystore_integrity_baseline_lazy(cfg)
+        try:
+            cur_enc = (
+                hashlib.sha256(KEYSTORE_PATH.read_bytes()).hexdigest()
+                if KEYSTORE_PATH.is_file()
+                else ""
+            )
+        except OSError as exc:
+            _deny(
+                tool,
+                f"Keystore file not readable: {exc}",
+                args,
+                ctx,
+                deny_detail="policy_integrity_keystore_read_error",
+            )
+        try:
+            cur_salt = (
+                hashlib.sha256(KEYSTORE_SALT_PATH.read_bytes()).hexdigest()
+                if KEYSTORE_SALT_PATH.is_file()
+                else ""
+            )
+        except OSError as exc:
+            _deny(
+                tool,
+                f"Keystore salt file not readable: {exc}",
+                args,
+                ctx,
+                deny_detail="policy_integrity_salt_read_error",
+            )
+        if cur_enc != _POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC or cur_salt != _POLICY_INTEGRITY_BASELINE_KEYSTORE_SALT:
+            _deny(
+                tool,
+                "Keystore or salt changed since reference snapshot (SHA256). Please restart MCP.",
+                args,
+                ctx,
+                deny_detail="policy_integrity_keystore_mismatch",
+            )
+    if cfg.get("scope") == "all_interval":
+        _POLICY_INTEGRITY_LAST_VERIFY_MONO = time.monotonic()
+
+
+def _write_policy_integrity_startup_marker(payload: dict[str, Any]) -> None:
+    """Persistenter Nachweis für Guardian-Selbsttest (Punkt 17): Startup-Hashes."""
+    try:
+        out = CONFIG_DIR / "policy_integrity_startup.json"
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _policy_integrity_startup_primary() -> None:
+    """Vor mcp.run(): Baseline setzen und SHA256 sofort zweimal gegenlesen (Primärprüfung)."""
+    global _POLICY_INTEGRITY_BASELINE_HEX
+    global _POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC, _POLICY_INTEGRITY_BASELINE_KEYSTORE_SALT
+    global _POLICY_INTEGRITY_STARTUP_VERIFIED, _POLICY_INTEGRITY_STARTUP_AT_UTC, _POLICY_INTEGRITY_STARTUP_ERROR
+
+    _POLICY_INTEGRITY_STARTUP_VERIFIED = False
+    _POLICY_INTEGRITY_STARTUP_AT_UTC = None
+    _POLICY_INTEGRITY_STARTUP_ERROR = ""
+
+    pol = _get_policy()
+    cfg = _policy_integrity_config(pol)
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not cfg.get("enabled", True):
+        _POLICY_INTEGRITY_STARTUP_VERIFIED = True
+        _POLICY_INTEGRITY_STARTUP_AT_UTC = now
+        _write_policy_integrity_startup_marker(
+            {
+                "integrity_enabled": False,
+                "startup_ok": True,
+                "startup_utc": now,
+                "message": "policy_integrity disabled in policy",
+            }
+        )
+        print("MCC MCP: Policy integrity disabled -- no SHA256 startup check.", file=_sys.stderr)
+        return
+
+    _POLICY_INTEGRITY_BASELINE_HEX = None
+    _POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC = None
+    _POLICY_INTEGRITY_BASELINE_KEYSTORE_SALT = None
+    _ensure_policy_integrity_baseline(pol)
+
+    if _POLICY_INTEGRITY_BASELINE_HEX is None:
+        _POLICY_INTEGRITY_STARTUP_ERROR = "policy_unreadable"
+        _write_policy_integrity_startup_marker(
+            {
+                "integrity_enabled": True,
+                "startup_ok": False,
+                "startup_utc": now,
+                "error": "policy_unreadable",
+            }
+        )
+        print("MCC MCP: Policy integrity: policy file not readable (startup).", file=_sys.stderr)
+        return
+
+    path = _policy_path_resolved()
+    try:
+        second = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        _POLICY_INTEGRITY_STARTUP_ERROR = str(exc)
+        _write_policy_integrity_startup_marker(
+            {
+                "integrity_enabled": True,
+                "startup_ok": False,
+                "startup_utc": now,
+                "error": f"policy_re_read:{exc}",
+            }
+        )
+        print(f"MCC MCP: Policy integrity: primary check read error: {exc}", file=_sys.stderr)
+        return
+
+    if second != _POLICY_INTEGRITY_BASELINE_HEX:
+        _POLICY_INTEGRITY_STARTUP_ERROR = "policy_hash_primary_mismatch"
+        _write_policy_integrity_startup_marker(
+            {
+                "integrity_enabled": True,
+                "startup_ok": False,
+                "startup_utc": now,
+                "error": "policy_hash_primary_mismatch",
+            }
+        )
+        print("MCC MCP: Policy integrity: primary check HASH mismatch (policy).", file=_sys.stderr)
+        return
+
+    if cfg.get("include_keystore_files", True):
+        _ensure_keystore_integrity_baseline_lazy(cfg)
+        try:
+            cur_enc = (
+                hashlib.sha256(KEYSTORE_PATH.read_bytes()).hexdigest()
+                if KEYSTORE_PATH.is_file()
+                else ""
+            )
+        except OSError as exc:
+            _POLICY_INTEGRITY_STARTUP_ERROR = f"keystore_read:{exc}"
+            _write_policy_integrity_startup_marker(
+                {
+                    "integrity_enabled": True,
+                    "startup_ok": False,
+                    "startup_utc": now,
+                    "error": f"keystore_read:{exc}",
+                    "policy_sha256": _POLICY_INTEGRITY_BASELINE_HEX,
+                }
+            )
+            print(f"MCC MCP: Policy integrity: keystore primary check: {exc}", file=_sys.stderr)
+            return
+        try:
+            cur_salt = (
+                hashlib.sha256(KEYSTORE_SALT_PATH.read_bytes()).hexdigest()
+                if KEYSTORE_SALT_PATH.is_file()
+                else ""
+            )
+        except OSError as exc:
+            _POLICY_INTEGRITY_STARTUP_ERROR = f"salt_read:{exc}"
+            _write_policy_integrity_startup_marker(
+                {
+                    "integrity_enabled": True,
+                    "startup_ok": False,
+                    "startup_utc": now,
+                    "error": f"salt_read:{exc}",
+                    "policy_sha256": _POLICY_INTEGRITY_BASELINE_HEX,
+                }
+            )
+            print(f"MCC MCP: Policy integrity: salt primary check: {exc}", file=_sys.stderr)
+            return
+
+        if (
+            cur_enc != _POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC
+            or cur_salt != _POLICY_INTEGRITY_BASELINE_KEYSTORE_SALT
+        ):
+            _POLICY_INTEGRITY_STARTUP_ERROR = "keystore_hash_primary_mismatch"
+            _write_policy_integrity_startup_marker(
+                {
+                    "integrity_enabled": True,
+                    "startup_ok": False,
+                    "startup_utc": now,
+                    "error": "keystore_hash_primary_mismatch",
+                    "policy_sha256": _POLICY_INTEGRITY_BASELINE_HEX,
+                }
+            )
+            print("MCC MCP: Policy integrity: primary check HASH mismatch (keystore/salt).", file=_sys.stderr)
+            return
+
+    _POLICY_INTEGRITY_STARTUP_VERIFIED = True
+    _POLICY_INTEGRITY_STARTUP_AT_UTC = now
+    marker: dict[str, Any] = {
+        "integrity_enabled": True,
+        "include_keystore_files": bool(cfg.get("include_keystore_files", True)),
+        "startup_ok": True,
+        "startup_utc": now,
+        "policy_sha256": _POLICY_INTEGRITY_BASELINE_HEX,
+    }
+    if cfg.get("include_keystore_files", True):
+        marker["keystore_enc_sha256"] = _POLICY_INTEGRITY_BASELINE_KEYSTORE_ENC or ""
+        marker["keystore_salt_sha256"] = _POLICY_INTEGRITY_BASELINE_KEYSTORE_SALT or ""
+    _write_policy_integrity_startup_marker(marker)
+    pfx = _POLICY_INTEGRITY_BASELINE_HEX[:16]
+    print(
+        f"MCC MCP: Policy integrity startup primary check OK policy_sha256={pfx}…",
+        file=_sys.stderr,
+    )
+
+
 def _build_auth_provider():
     mode = (_STARTUP_SECRETS.get("auth_mode") or os.getenv("MCP_AUTH_MODE", "none")).strip().lower()
     if mode in {"", "none", "off", "disabled"}:
@@ -217,9 +598,9 @@ def _build_auth_provider():
     client_secret = (_STARTUP_SECRETS.get("oauth_client_secret") or os.getenv("MCP_OAUTH_CLIENT_SECRET", "")).strip()
 
     if not base_url:
-        raise ValueError("MCP_PUBLIC_BASE_URL fehlt für OAuth-Modus")
+        raise ValueError("MCP_PUBLIC_BASE_URL missing for OAuth mode")
     if not client_id or not client_secret:
-        raise ValueError("MCP_OAUTH_CLIENT_ID/MCP_OAUTH_CLIENT_SECRET fehlen")
+        raise ValueError("MCP_OAUTH_CLIENT_ID/MCP_OAUTH_CLIENT_SECRET missing")
 
     redirect_path = os.getenv("MCP_OAUTH_REDIRECT_PATH", "/oauth/callback").strip() or "/oauth/callback"
     _sco = _STARTUP_SECRETS.get("oauth_scopes")
@@ -249,7 +630,7 @@ def _build_auth_provider():
     if mode == "oidc":
         config_url = os.getenv("MCP_OIDC_CONFIG_URL", "").strip()
         if not config_url:
-            raise ValueError("MCP_OIDC_CONFIG_URL fehlt für OIDC-Modus")
+            raise ValueError("MCP_OIDC_CONFIG_URL missing for OIDC mode")
 
         audience = os.getenv("MCP_OIDC_AUDIENCE", "").strip() or None
         return OIDCProxy(
@@ -262,15 +643,15 @@ def _build_auth_provider():
             audience=audience,
         )
 
-    raise ValueError(f"Unbekannter MCP_AUTH_MODE: {mode}")
+    raise ValueError(f"Unknown MCP_AUTH_MODE: {mode}")
 
 
 try:
-    mcp = FastMCP("EVOKI V5 Guarded", auth=_build_auth_provider())
+    mcp = FastMCP("MCC", auth=_build_auth_provider())
 except Exception as exc:
     import sys as _sys
 
-    print(f"EVOKI MCP: Initialisierung fehlgeschlagen: {exc}", file=_sys.stderr)
+    print(f"MCC MCP: Initialisation failed: {exc}", file=_sys.stderr)
     raise
 
 
@@ -427,9 +808,6 @@ def _roots_from_policy_dict(pol: dict[str, Any]) -> list[Path]:
     for raw in roots:
         if isinstance(raw, str) and raw.strip():
             parsed.append(Path(raw).resolve())
-
-    if not parsed:
-        parsed = [Path("C:/").resolve(), Path("D:/").resolve(), Path("J:/").resolve()]
     return parsed
 
 
@@ -634,15 +1012,16 @@ def _check_client_blocklist(client_name: str, user_agent: str, pol: dict[str, An
 def _run_request_pipeline(ctx: Context | None, tool: str, args: dict) -> str:
     """Blocklist → Rate-Limit → Bearer → Client-Blocklist. Gibt client_name bei Bearer zurück."""
     pol = _get_policy()
+    _check_policy_integrity_or_deny(tool, pol, ctx, args)
     ip = _get_real_ip(ctx)
 
     ok_bl, bl_detail = _check_blocklist(ip)
     if not ok_bl:
-        _deny(tool, "IP blockiert", args, ctx, deny_category=DENY_AUTH, deny_detail=bl_detail)
+        _deny(tool, "IP is blocked", args, ctx, deny_category=DENY_AUTH, deny_detail=bl_detail)
 
     ok_rl, rl_detail = _check_rate_limit(ip, pol)
     if not ok_rl:
-        _deny(tool, rl_detail or "Zu viele Anfragen", args, ctx, deny_category=DENY_RATE, deny_detail=rl_detail)
+        _deny(tool, rl_detail or "Too many requests", args, ctx, deny_category=DENY_RATE, deny_detail=rl_detail)
 
     client_name = ""
     if _auth_mode() == "bearer":
@@ -655,7 +1034,7 @@ def _run_request_pipeline(ctx: Context | None, tool: str, args: dict) -> str:
         ua = _get_user_agent(ctx)
         ok_cb, cb_detail = _check_client_blocklist(cn, ua, pol)
         if not ok_cb:
-            _deny(tool, "Client gesperrt", args, ctx, deny_category=DENY_AUTH, deny_detail=cb_detail)
+            _deny(tool, "Client is blocked", args, ctx, deny_category=DENY_AUTH, deny_detail=cb_detail)
     return client_name
 
 
@@ -698,6 +1077,35 @@ def _is_in_honeypot_zone(path: Path, pol: dict[str, Any]) -> bool:
     return False
 
 
+# Layer 1: zusätzliche Pfad-Substring-Regeln (ehemals GUI-Scoring; keine Duplikation in Layer 2).
+_LAYER1_PATH_SUBSTRING_DENY: tuple[str, ...] = (
+    "windows",
+    "programdata",
+    "appdata",
+    ".ssh",
+    ".env",
+    "secret",
+    "token",
+    "password",
+)
+
+
+def _suffix_matches_policy(name_lower: str, path_suffix_lower: str, blocked_suffixes: set[str]) -> bool:
+    """Literal suffix (endswith / Path.suffix) oder Glob mit fnmatch auf dem Dateinamen (z. B. ``.env.*``)."""
+    ps = path_suffix_lower or ""
+    for raw in blocked_suffixes:
+        pat = str(raw).strip().lower()
+        if not pat:
+            continue
+        if any(c in pat for c in "*?["):
+            if fnmatch.fnmatch(name_lower, pat):
+                return True
+        else:
+            if name_lower.endswith(pat) or ps == pat:
+                return True
+    return False
+
+
 def _is_blocked_file(path: Path, pol: dict[str, Any]) -> bool:
     name = path.name.lower()
     suffix = path.suffix.lower()
@@ -705,7 +1113,7 @@ def _is_blocked_file(path: Path, pol: dict[str, Any]) -> bool:
     blocked_file_names = _blocked_set_from_pol(pol, "file_names")
     blocked_name_contains = _blocked_set_from_pol(pol, "name_contains")
 
-    if suffix in blocked_suffixes:
+    if _suffix_matches_policy(name, suffix, blocked_suffixes):
         return True
     if name in blocked_file_names:
         return True
@@ -714,6 +1122,10 @@ def _is_blocked_file(path: Path, pol: dict[str, Any]) -> bool:
         return False
 
     if any(token in name for token in blocked_name_contains):
+        return True
+
+    path_lower = str(path).lower().replace("\\", "/")
+    if any(tok in path_lower for tok in _LAYER1_PATH_SUBSTRING_DENY):
         return True
 
     return False
@@ -740,11 +1152,13 @@ def _resolve_user_path(user_path: str, pol: dict[str, Any]) -> Path:
 
     if normalize:
         if "::" in raw or raw.count(":") > 1:
-            raise ValueError("Alternate Data Streams nicht erlaubt")
+            raise ValueError("Alternate Data Streams not allowed")
         if raw.startswith("\\\\"):
-            raise ValueError("UNC-Pfade nicht erlaubt")
+            raise ValueError("UNC paths not allowed")
 
     allowed_roots = _roots_from_policy_dict(pol)
+    if not allowed_roots:
+        raise ValueError("No roots configured -- please set at least one root in the policy.")
     candidate = Path(raw)
     if candidate.is_absolute():
         resolved = candidate.resolve()
@@ -755,9 +1169,9 @@ def _resolve_user_path(user_path: str, pol: dict[str, Any]) -> Path:
         resolved = Path(_get_long_path_name(str(resolved)))
 
     if not _is_under_allowed_root(resolved, allowed_roots):
-        raise ValueError("Pfad nicht erlaubt")
+        raise ValueError("Path not allowed")
     if _is_blocked_path(resolved, pol):
-        raise ValueError("Pfad gesperrt")
+        raise ValueError("Path blocked by policy")
     return resolved
 
 
@@ -780,18 +1194,18 @@ def _path_matches_prefixes(path: Path, prefixes: list[str]) -> bool:
 
 def _write_allowed(path: Path, pol: dict[str, Any], client_name: str = "") -> tuple[bool, str | None]:
     if _write_mode(pol) != "read_write":
-        return False, "Server läuft im read_only Modus"
+        return False, "Server is in read_only mode"
 
     permissions = pol.get("permissions", {})
     if not isinstance(permissions, dict):
-        return False, "Ungültige permissions Konfiguration"
+        return False, "Invalid permissions configuration"
 
     deny_paths = permissions.get("write_deny_paths", [])
     if not isinstance(deny_paths, list):
         deny_paths = []
 
     if deny_paths and _path_matches_prefixes(path, [str(v) for v in deny_paths]):
-        return False, "Pfad in write_deny_paths"
+        return False, "Path is in write_deny_paths"
 
     agents = permissions.get("agents")
     if isinstance(agents, dict) and client_name:
@@ -812,363 +1226,138 @@ def _write_allowed(path: Path, pol: dict[str, Any], client_name: str = "") -> tu
         allow_paths = []
 
     if not allow_paths:
-        return False, "Keine write_allow_paths konfiguriert"
+        return False, "No write_allow_paths configured"
     if not _path_matches_prefixes(path, [str(v) for v in allow_paths]):
-        return False, "Pfad nicht in write_allow_paths"
+        return False, "Path not in write_allow_paths"
 
     return True, None
 
 
-def _kontext_hourly_env_enabled() -> bool:
-    v = (os.environ.get("MCP_ALLOW_KONTEXT_HOURLY") or "").strip().lower()
-    return v in ("1", "true", "yes", "on")
-
-
-def _terminal_exec_env_enabled() -> bool:
-    v = (os.environ.get("MCP_ALLOW_TERMINAL_EXEC") or "").strip().lower()
-    return v in ("1", "true", "yes", "on")
-
-
-def _windows_confirm_terminal_execution(command: str, workdir: str) -> bool:
-    """Explizite Zustimmung am interaktiven Windows-Desktop (MessageBox)."""
-    if os.name != "nt":
-        return False
-    MB_YESNO = 0x00000004
-    MB_ICONWARNING = 0x00000030
-    IDYES = 6
-    preview = command if len(command) <= 1200 else command[:1170] + "\n…"
-    wd = workdir if len(workdir) <= 500 else workdir[:480] + "…"
-    msg = (
-        "Der MCP-Client möchte folgenden Befehl ausführen:\n\n"
-        f"{preview}\n\n"
-        f"Arbeitsverzeichnis:\n{wd}\n\n"
-        "Ja = Ausführen, Nein = Abbrechen"
-    )
-    r = int(ctypes.windll.user32.MessageBoxW(0, msg, "EVOKI MCP – Terminal", MB_YESNO | MB_ICONWARNING))
-    return r == IDYES
-
-
-def _load_kontext_runner_cfg() -> dict[str, Any]:
-    cfg: dict[str, Any] = dict(_DEFAULT_KONTEXT_RUNNER)
-    if not KONTEXT_RUNNER_CONFIG_PATH.is_file():
-        return cfg
-    try:
-        raw = json.loads(KONTEXT_RUNNER_CONFIG_PATH.read_text(encoding="utf-8"))
-        if isinstance(raw, dict):
-            for key, val in raw.items():
-                if str(key).startswith("_"):
-                    continue
-                cfg[str(key)] = val
-    except (OSError, json.JSONDecodeError):
-        pass
-    return cfg
-
-
-def _truncate_text(text: str, max_chars: int) -> str:
-    if max_chars <= 0 or len(text) <= max_chars:
-        return text
-    return text[: max(0, max_chars - 24)] + "\n... [Ausgabe gekürzt] ..."
-
-
-@mcp.tool()
-def run_kontext_cowork_hourly(ctx: Context | None = None) -> dict[str, Any]:
-    """Führt die stündliche Kontext-Kette auf dem EVOKI-Host aus (Delta → Index → Snapshot).
-
-    Nur aktiv, wenn im Guardian Control Center der Haken gesetzt und der Stack gestartet wurde.
-
-    Hinweis Timeout: ``timeout_seconds`` in ``config/mcp_kontext_runner.json`` begrenzt nur den
-    **Subprozess** auf dem Server (Standard 7200s). Viele MCP-Clients beenden den **HTTP-Tool-Aufruf**
-    dagegen oft nach ~60s — die Kette kann auf dem Host trotzdem fertig werden; siehe Doku
-    EVOKI KONTEXT Stunde (Timeouts).
-    """
-    tool = "run_kontext_cowork_hourly"
-    args: dict[str, Any] = {}
-    client_name = _run_request_pipeline(ctx, tool, args)
-
-    if not _kontext_hourly_env_enabled():
-        detail = "Im Guardian: Haken „Kontext-Stunde per MCP“ vor „Stack starten“ setzen."
-        _log_access(
-            tool,
-            {"ok": False},
-            "denied",
-            ctx,
-            reason=detail,
-            client_name=client_name or None,
-            deny_category=DENY_POLICY,
-            deny_detail="kontext_runner_guardian_off",
-        )
-        return {"ok": False, "error": "guardian_kontext_mcp_off", "detail": detail}
-
-    cfg = _load_kontext_runner_cfg()
-    rel = str(cfg.get("script_relative") or _DEFAULT_KONTEXT_RUNNER["script_relative"])
-    script_path = (BASE_DIR / rel).resolve()
-    base_resolved = BASE_DIR.resolve()
-    try:
-        script_path.relative_to(base_resolved)
-    except ValueError:
-        msg = "script_relative liegt ausserhalb von BASE_DIR"
-        _log_access(tool, {"ok": False}, "denied", ctx, reason=msg, client_name=client_name or None, deny_category=DENY_POLICY)
-        return {"ok": False, "error": "invalid_script_path", "detail": msg}
-
-    if not script_path.is_file():
-        msg = f"Script fehlt: {script_path}"
-        _log_access(tool, {"ok": False}, "denied", ctx, reason=msg, client_name=client_name or None, deny_category=DENY_TECH)
-        return {"ok": False, "error": "script_missing", "path": str(script_path)}
-
-    try:
-        timeout_s = int(cfg.get("timeout_seconds") or 7200)
-    except (TypeError, ValueError):
-        timeout_s = 7200
-    timeout_s = max(60, min(timeout_s, 86_400))
-
-    try:
-        max_out = int(cfg.get("max_output_chars_per_stream") or 120_000)
-    except (TypeError, ValueError):
-        max_out = 120_000
-    max_out = max(4000, min(max_out, 2_000_000))
-
-    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    cmd = [_sys.executable, str(script_path)]
-    sub_env = os.environ.copy()
-    sub_env.setdefault("PYTHONIOENCODING", "utf-8")
-    t0 = time.monotonic()
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(base_resolved),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout_s,
-            creationflags=flags,
-            env=sub_env,
-        )
-    except subprocess.TimeoutExpired as exc:
-        dur = round(time.monotonic() - t0, 2)
-        _log_access(
-            tool,
-            {"ok": False, "timeout_s": timeout_s, "duration_s": dur},
-            "denied",
-            ctx,
-            reason="Timeout",
-            client_name=client_name or None,
-            deny_category=DENY_TECH,
-        )
-        return {
-            "ok": False,
-            "error": "timeout",
-            "timeout_seconds": timeout_s,
-            "server_subprocess_timeout_seconds": timeout_s,
-            "duration_s": dur,
-            "partial_stdout": _truncate_text((exc.stdout or ""), max_out),
-            "partial_stderr": _truncate_text((exc.stderr or ""), max_out),
-        }
-    except OSError as exc:
-        _log_access(
-            tool,
-            {"ok": False, "exc": str(exc)},
-            "denied",
-            ctx,
-            reason=str(exc),
-            client_name=client_name or None,
-            deny_category=DENY_TECH,
-        )
-        return {
-            "ok": False,
-            "error": "os_error",
-            "detail": str(exc),
-            "server_subprocess_timeout_seconds": timeout_s,
-        }
-
-    dur = round(time.monotonic() - t0, 2)
-    out = _truncate_text(proc.stdout or "", max_out)
-    err = _truncate_text(proc.stderr or "", max_out)
-    payload = {
-        "ok": proc.returncode == 0,
-        "returncode": proc.returncode,
-        "duration_s": dur,
-        "server_subprocess_timeout_seconds": timeout_s,
-        "cwd": str(base_resolved),
-        "command": cmd,
-        "stdout": out,
-        "stderr": err,
+def _permissions_snapshot(pol: dict[str, Any]) -> dict[str, Any]:
+    """Lesbare Schreib-/Lese-Konfiguration für policy_snapshot (keine Geheimnisse)."""
+    p = pol.get("permissions")
+    if not isinstance(p, dict):
+        return {"mode": "read_only", "write_allow_paths": [], "write_deny_paths": []}
+    out: dict[str, Any] = {
+        "mode": str(p.get("mode", "read_only")).lower(),
+        "write_allow_paths": [str(x).strip() for x in (p.get("write_allow_paths") or []) if str(x).strip()],
+        "write_deny_paths": [str(x).strip() for x in (p.get("write_deny_paths") or []) if str(x).strip()],
     }
-    _log_access(
-        tool,
-        {
-            "ok": payload["ok"],
-            "returncode": proc.returncode,
-            "duration_s": dur,
-            "stdout_chars": len(out),
-            "stderr_chars": len(err),
-            "response_bytes": _json_size_bytes(payload),
-        },
-        "ok" if payload["ok"] else "error",
-        ctx,
-        reason=None if payload["ok"] else f"exit_{proc.returncode}",
-        client_name=client_name or None,
-        deny_category=None if payload["ok"] else DENY_TECH,
-    )
-    return payload
+    agents = p.get("agents")
+    if isinstance(agents, dict) and agents:
+        ag_out: dict[str, Any] = {}
+        for name, entry in agents.items():
+            if isinstance(entry, dict):
+                wap = entry.get("write_allow_paths", [])
+                paths = (
+                    [str(x).strip() for x in wap if str(x).strip()]
+                    if isinstance(wap, list)
+                    else []
+                )
+                ag_out[str(name)] = {"write_allow_paths": paths}
+            else:
+                ag_out[str(name)] = {"write_allow_paths": []}
+        out["agents"] = ag_out
+    return out
 
 
-@mcp.tool()
-def run_terminal_command(
-    command: str,
-    cwd: Optional[str] = None,
-    ctx: Context | None = None,
-) -> dict[str, Any]:
-    """Führt einen Shell-Befehl auf dem Host aus (nur mit Guardian-Haken und pro Aufruf Windows-Bestätigung)."""
-    tool = "run_terminal_command"
-    args: dict[str, Any] = {"command_preview_chars": min(len(command), 200)}
-    client_name = _run_request_pipeline(ctx, tool, args)
-
-    if not _terminal_exec_env_enabled():
-        detail = "Im Guardian: Haken „Terminal per MCP“ mit Master-Passwort vor „Stack starten“ setzen."
-        _log_access(
-            tool,
-            {"ok": False},
-            "denied",
-            ctx,
-            reason=detail,
-            client_name=client_name or None,
-            deny_category=DENY_POLICY,
-            deny_detail="terminal_exec_guardian_off",
-        )
-        return {"ok": False, "error": "guardian_terminal_mcp_off", "detail": detail}
-
-    if len(command) > 16_000:
-        _log_access(
-            tool,
-            {"ok": False},
-            "denied",
-            ctx,
-            reason="Befehl zu lang",
-            client_name=client_name or None,
-            deny_category=DENY_POLICY,
-        )
-        return {"ok": False, "error": "command_too_long", "max_chars": 16_000}
-
-    base_resolved = BASE_DIR.resolve()
-    work = base_resolved
-    if cwd and str(cwd).strip():
-        try:
-            work = Path(cwd).expanduser().resolve()
-            work.relative_to(base_resolved)
-        except (ValueError, OSError) as exc:
-            msg = f"cwd ausserhalb von BASE_DIR oder ungültig: {exc}"
-            _log_access(
-                tool,
-                {"ok": False, "cwd": str(cwd)},
-                "denied",
-                ctx,
-                reason=msg,
-                client_name=client_name or None,
-                deny_category=DENY_POLICY,
-            )
-            return {"ok": False, "error": "invalid_cwd", "detail": msg}
-
-    if os.name != "nt":
-        _log_access(
-            tool,
-            {"ok": False},
-            "denied",
-            ctx,
-            reason="Terminal-Bestätigung nur unter Windows (MessageBox)",
-            client_name=client_name or None,
-            deny_category=DENY_TECH,
-        )
-        return {"ok": False, "error": "windows_only", "detail": "MessageBox-Bestätigung ist nur unter Windows verfügbar."}
-
-    if not _windows_confirm_terminal_execution(command, str(work)):
-        _log_access(
-            tool,
-            {"ok": False},
-            "denied",
-            ctx,
-            reason="Benutzer hat Ausführung abgelehnt (MessageBox)",
-            client_name=client_name or None,
-            deny_category=DENY_POLICY,
-            deny_detail="terminal_user_declined",
-        )
-        return {"ok": False, "error": "user_declined", "detail": "Ausführung am Desktop abgelehnt."}
-
-    max_out = 80_000
-    timeout_s = 300
-    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    t0 = time.monotonic()
-    try:
-        proc = subprocess.run(
-            command,
-            shell=True,
-            cwd=str(work),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout_s,
-            creationflags=flags,
-        )
-    except subprocess.TimeoutExpired as exc:
-        dur = round(time.monotonic() - t0, 2)
-        _log_access(
-            tool,
-            {"ok": False, "timeout_s": timeout_s, "duration_s": dur},
-            "denied",
-            ctx,
-            reason="Timeout",
-            client_name=client_name or None,
-            deny_category=DENY_TECH,
-        )
-        return {
-            "ok": False,
-            "error": "timeout",
-            "timeout_seconds": timeout_s,
-            "duration_s": dur,
-            "partial_stdout": _truncate_text((exc.stdout or ""), max_out),
-            "partial_stderr": _truncate_text((exc.stderr or ""), max_out),
-        }
-    except OSError as exc:
-        _log_access(
-            tool,
-            {"ok": False, "exc": str(exc)},
-            "denied",
-            ctx,
-            reason=str(exc),
-            client_name=client_name or None,
-            deny_category=DENY_TECH,
-        )
-        return {"ok": False, "error": "os_error", "detail": str(exc)}
-
-    dur = round(time.monotonic() - t0, 2)
-    out = _truncate_text(proc.stdout or "", max_out)
-    err = _truncate_text(proc.stderr or "", max_out)
-    payload = {
-        "ok": proc.returncode == 0,
-        "returncode": proc.returncode,
-        "duration_s": dur,
-        "cwd": str(work),
-        "stdout": out,
-        "stderr": err,
+def _tool_registry_snapshot(pol: dict[str, Any]) -> dict[str, Any]:
+    tr = pol.get("tool_registry")
+    if not isinstance(tr, dict):
+        return {"active_profile": "standard", "disabled_tools": [], "custom_profiles": {}}
+    dt = tr.get("disabled_tools")
+    disabled = [str(x) for x in dt] if isinstance(dt, list) else []
+    cp_raw = tr.get("custom_profiles")
+    cp_out: dict[str, Any] = {}
+    if isinstance(cp_raw, dict):
+        for k, v in cp_raw.items():
+            if isinstance(v, dict) and isinstance(v.get("disabled_tools"), list):
+                cp_out[str(k)] = {
+                    "disabled_tools": [str(x) for x in v["disabled_tools"] if str(x).strip()],
+                }
+    return {
+        "active_profile": str(tr.get("active_profile", "standard")),
+        "disabled_tools": disabled,
+        "custom_profiles": cp_out,
     }
-    _log_access(
-        tool,
+
+
+def _rate_limit_snapshot(pol: dict[str, Any]) -> dict[str, Any]:
+    rl = pol.get("rate_limit")
+    if not isinstance(rl, dict):
+        return {}
+    out: dict[str, Any] = {}
+    try:
+        out["requests_per_minute"] = int(rl.get("requests_per_minute", 30))
+    except (TypeError, ValueError):
+        out["requests_per_minute"] = 30
+    try:
+        out["block_after_failures"] = int(rl.get("block_after_failures", 5))
+    except (TypeError, ValueError):
+        out["block_after_failures"] = 5
+    return out
+
+
+def _policy_integrity_public_snapshot(pol: dict[str, Any]) -> dict[str, Any]:
+    adv = pol.get("advanced") if isinstance(pol.get("advanced"), dict) else {}
+    pi = adv.get("policy_integrity")
+    if not isinstance(pi, dict):
+        return {}
+    scope = pi.get("scope", "selective")
+    if scope not in ("all", "selective", "all_interval"):
+        scope = "selective"
+    try:
+        interval_minutes = int(pi.get("interval_minutes", 0))
+    except (TypeError, ValueError):
+        interval_minutes = 0
+    return {
+        "enabled": bool(pi.get("enabled", True)),
+        "scope": scope,
+        "interval_minutes": interval_minutes,
+        "include_keystore_files": bool(pi.get("include_keystore_files", True)),
+    }
+
+
+def _mcp_tools_catalog() -> list[dict[str, Any]]:
+    """Statischer Katalog der registrierten Tools inkl. Hinweise (Ordner vs. Datei, Env-Gates)."""
+    return [
         {
-            "ok": payload["ok"],
-            "returncode": proc.returncode,
-            "duration_s": dur,
-            "stdout_chars": len(out),
-            "stderr_chars": len(err),
-            "response_bytes": _json_size_bytes(payload),
+            "name": "policy_snapshot",
+            "category": "read",
+            "notes": "Diese Übersicht; kein Zugriff auf Dateien.",
         },
-        "ok" if payload["ok"] else "error",
-        ctx,
-        reason=None if payload["ok"] else f"exit_{proc.returncode}",
-        client_name=client_name or None,
-        deny_category=None if payload["ok"] else DENY_TECH,
-    )
-    return payload
+        {"name": "list_roots", "category": "read", "notes": "Nur Roots, die auf dem Host existieren."},
+        {
+            "name": "list_directory",
+            "category": "read",
+            "notes": "Ordner auflisten. Für Verzeichnisse verwenden, nicht read_file.",
+        },
+        {
+            "name": "read_file",
+            "category": "read",
+            "notes": "Nur normale Dateien; bei einem Ordnerpfad schlägt die Prüfung fehl (Keine Datei).",
+        },
+        {
+            "name": "search_files",
+            "category": "read",
+            "notes": "Optional base_path: Suche nur unter diesem Ordner (muss unter einem Root liegen).",
+        },
+        {
+            "name": "write_file",
+            "category": "write",
+            "notes": "Benötigt mode read_write und Ziel unter write_allow_paths.",
+        },
+        {
+            "name": "create_directory",
+            "category": "write",
+            "notes": "Benötigt mode read_write und Ziel unter write_allow_paths.",
+        },
+        {
+            "name": "delete_path",
+            "category": "write",
+            "notes": "Benötigt mode read_write und Ziel unter write_allow_paths.",
+        },
+    ]
 
 
 @mcp.tool()
@@ -1177,10 +1366,30 @@ def policy_snapshot(ctx: Context | None = None) -> dict[str, Any]:
     client_name = _run_request_pipeline(ctx, "policy_snapshot", args)
     pol = _get_policy()
     roots = _roots_from_policy_dict(pol)
+    adv = pol.get("advanced") if isinstance(pol.get("advanced"), dict) else {}
+    try:
+        max_write_bytes = int(adv.get("max_write_bytes", MAX_WRITE_BYTES))
+    except (TypeError, ValueError):
+        max_write_bytes = MAX_WRITE_BYTES
+    perms = _permissions_snapshot(pol)
+    wap = list(perms.get("write_allow_paths") or [])
+    wdp = list(perms.get("write_deny_paths") or [])
     snapshot = {
+        "snapshot_version": 3,
         "policy_path": pol.get("_policy_path"),
+        "auth_mode": _auth_mode(),
+        "bearer_client_name": client_name or None,
         "roots": [str(r) for r in roots],
+        "roots_note": "Read/list/search only under these roots (except blocked names/parts).",
         "mode": _write_mode(pol),
+        # Explizit auf Top-Level: viele Clients/Assistenten erwarten diese Keys flach (nicht nur unter permissions).
+        "write_allow_paths": wap,
+        "write_deny_paths": wdp,
+        "permissions": perms,
+        "permissions_note": (
+            "Writing only in mode read_write and when the target path is under write_allow_paths "
+            "(also check write_deny_paths as needed). Same lists are also available at the top-level write_*."
+        ),
         "blocked": {
             "dir_names": sorted(_blocked_set_from_pol(pol, "dir_names")),
             "path_parts": sorted(_blocked_set_from_pol(pol, "path_parts")),
@@ -1190,6 +1399,26 @@ def policy_snapshot(ctx: Context | None = None) -> dict[str, Any]:
         },
         "honeypot": {
             "bypass_name_filter_paths": [str(p) for p in _honeypot_bypass_paths_from_pol(pol)],
+        },
+        "rate_limit": _rate_limit_snapshot(pol),
+        "tool_registry": _tool_registry_snapshot(pol),
+        "tools": _mcp_tools_catalog(),
+        "policy_integrity": _policy_integrity_public_snapshot(pol),
+        "advanced": {
+            "max_write_bytes": max_write_bytes,
+            "path_normalization_enabled": bool(adv.get("path_normalization_enabled", True)),
+        },
+        "usage_hints": [
+            "Verzeichnisinhalt: list_directory, nicht read_file auf den Ordnerpfad.",
+            "Schreibpfade: write_allow_paths und write_deny_paths sind auf Top-Level und unter permissions identisch.",
+            "search_files: optionaler Parameter base_path begrenzt die Suche auf einen Unterbaum.",
+        ],
+        "integrity_startup": {
+            "startup_primary_ok": _POLICY_INTEGRITY_STARTUP_VERIFIED,
+            "startup_utc": _POLICY_INTEGRITY_STARTUP_AT_UTC,
+            "error": _POLICY_INTEGRITY_STARTUP_ERROR or None,
+            "marker_file": str(CONFIG_DIR / "policy_integrity_startup.json"),
+            "note": "Vor Listen: SHA256-Baseline beim Prozessstart gesetzt und sofort gegengelesen (Primärprüfung).",
         },
     }
     _log_access(
@@ -1232,10 +1461,10 @@ def list_directory(path: str = ".", ctx: Context | None = None) -> list[str]:
         return []
 
     if not target.exists():
-        _deny(tool, "Pfad existiert nicht", args, ctx)
+        _deny(tool, "Path does not exist", args, ctx)
         return []
     if not target.is_dir():
-        _deny(tool, "Kein Ordner", args, ctx)
+        _deny(tool, "Not a directory", args, ctx)
         return []
 
     out: list[str] = []
@@ -1258,17 +1487,22 @@ def list_directory(path: str = ".", ctx: Context | None = None) -> list[str]:
 
 
 @mcp.tool()
-def search_files(query: str, limit: int = 100, ctx: Context | None = None) -> list[str]:
+def search_files(
+    query: str,
+    limit: int = 100,
+    base_path: Optional[str] = None,
+    ctx: Context | None = None,
+) -> list[str]:
     tool = "search_files"
-    args = {"query": query, "limit": limit}
+    args = {"query": query, "limit": limit, "base_path": base_path or ""}
     client_name = _run_request_pipeline(ctx, tool, args)
     pol = _get_policy()
     q = query.strip().lower()
     if not q:
-        _deny(tool, "Query darf nicht leer sein", args, ctx)
+        _deny(tool, "Query must not be empty", args, ctx)
         return []
     if limit < 1:
-        _deny(tool, "limit muss >= 1 sein", args, ctx)
+        _deny(tool, "limit must be >= 1", args, ctx)
         return []
 
     max_hits = min(limit, 500)
@@ -1280,18 +1514,31 @@ def search_files(query: str, limit: int = 100, ctx: Context | None = None) -> li
         write_paths = []
     wp_resolved = [Path(p).resolve() for p in write_paths if isinstance(p, str) and p.strip()]
 
-    priority_roots = []
-    other_roots = []
-    for r in all_roots:
-        is_priority = any(_is_under_allowed_root(wp, [r]) or r == wp for wp in wp_resolved)
-        if is_priority:
-            priority_roots.append(r)
-        else:
-            other_roots.append(r)
-
     adv = pol.get("advanced") if isinstance(pol.get("advanced"), dict) else {}
     do_prioritize = adv.get("search_prioritize_write_paths", True)
-    ordered_roots = (priority_roots + other_roots) if do_prioritize else all_roots
+
+    bp = (base_path or "").strip()
+    if bp:
+        try:
+            subtree = _resolve_user_path(bp, pol)
+        except ValueError as error:
+            _deny(tool, str(error), args, ctx)
+            return []
+        if not subtree.is_dir():
+            _deny(tool, "base_path is not a directory", args, ctx)
+            return []
+        ordered_roots = [subtree]
+        do_prioritize = False
+    else:
+        priority_roots = []
+        other_roots = []
+        for r in all_roots:
+            is_priority = any(_is_under_allowed_root(wp, [r]) or r == wp for wp in wp_resolved)
+            if is_priority:
+                priority_roots.append(r)
+            else:
+                other_roots.append(r)
+        ordered_roots = (priority_roots + other_roots) if do_prioritize else all_roots
 
     for root in ordered_roots:
         if len(hits) >= max_hits:
@@ -1353,24 +1600,28 @@ def read_file(path: str, max_bytes: int = 200000, ctx: Context | None = None) ->
         _deny(tool, str(error), args, ctx)
         return ""
 
+    # BUG-011: Blockliste (_is_blocked_file) vor jeder weiteren Prüfung,
+    # damit Existenz-Status der Datei nicht durch unterschiedliche Fehlermeldungen leakt.
+    if _is_blocked_file(target, pol):
+        _deny(tool, "File blocked by policy", args, ctx)
+        return ""
+
+    if not target.is_file():
+        _deny(tool, "Not a file", args, ctx)
+        return ""
+
     try:
         with target.open("rb") as fh:
-            if _is_blocked_file(target, pol):
-                _deny(tool, "Datei gesperrt", args, ctx)
-                return ""
-            if not target.is_file():
-                _deny(tool, "Keine Datei", args, ctx)
-                return ""
             max_len = 2000 if max_bytes < 2000 else min(max_bytes, 2_000_000)
             data = fh.read(max_len)
     except FileNotFoundError:
-        _deny(tool, "Datei existiert nicht", args, ctx)
+        _deny(tool, "File does not exist", args, ctx)
         return ""
     except IsADirectoryError:
-        _deny(tool, "Keine Datei", args, ctx)
+        _deny(tool, "Not a file", args, ctx)
         return ""
     except PermissionError:
-        _deny(tool, "Keine Berechtigung", args, ctx, deny_category="TECH_ERROR")
+        _deny(tool, "Permission denied", args, ctx, deny_category="TECH_ERROR")
         return ""
 
     try:
@@ -1409,12 +1660,12 @@ def write_file(path: str, content: str, append: bool = False, ctx: Context | Non
         return {}
 
     if _is_blocked_file(target, pol):
-        _deny(tool, "Datei gesperrt", args, ctx)
+        _deny(tool, "File blocked by policy", args, ctx)
         return {}
 
     allowed, reason = _write_allowed(target, pol, client_name)
     if not allowed:
-        _deny(tool, reason or "Schreiben nicht erlaubt", args, ctx, deny_category=DENY_POLICY)
+        _deny(tool, reason or "Write not allowed", args, ctx, deny_category=DENY_POLICY)
         return {}
 
     pol_advanced = pol.get("advanced") if isinstance(pol.get("advanced"), dict) else {}
@@ -1422,7 +1673,7 @@ def write_file(path: str, content: str, append: bool = False, ctx: Context | Non
     if max_wb > 0:
         content_bytes = len(content.encode("utf-8"))
         if content_bytes > max_wb:
-            _deny(tool, f"Content zu gross ({content_bytes} Bytes, max {max_wb})", args, ctx)
+            _deny(tool, f"Content too large ({content_bytes} bytes, max {max_wb})", args, ctx)
             return {}
 
     created_parents = []
@@ -1458,7 +1709,7 @@ def create_directory(path: str, ctx: Context | None = None) -> dict[str, Any]:
 
     allowed, reason = _write_allowed(target, pol, client_name)
     if not allowed:
-        _deny(tool, reason or "Schreiben nicht erlaubt", args, ctx, deny_category=DENY_POLICY)
+        _deny(tool, reason or "Write not allowed", args, ctx, deny_category=DENY_POLICY)
         return {}
 
     created_parents = []
@@ -1490,11 +1741,11 @@ def delete_path(path: str, recursive: bool = False, ctx: Context | None = None) 
 
     allowed, reason = _write_allowed(target, pol, client_name)
     if not allowed:
-        _deny(tool, reason or "Schreiben nicht erlaubt", args, ctx, deny_category=DENY_POLICY)
+        _deny(tool, reason or "Write not allowed", args, ctx, deny_category=DENY_POLICY)
         return {}
 
     if not target.exists():
-        _deny(tool, "Pfad existiert nicht", args, ctx)
+        _deny(tool, "Path does not exist", args, ctx)
         return {}
 
     if target.is_file():
@@ -1505,7 +1756,7 @@ def delete_path(path: str, recursive: bool = False, ctx: Context | None = None) 
                 for f in fn:
                     child = Path(dp) / f
                     if _is_blocked_file(child, pol):
-                        _deny(tool, f"Gesperrte Datei im Unterverzeichnis: {child.name}", args, ctx)
+                        _deny(tool, f"Blocked file in subdirectory: {child.name}", args, ctx)
                         return {}
             shutil.rmtree(target)
         else:
@@ -1516,10 +1767,44 @@ def delete_path(path: str, recursive: bool = False, ctx: Context | None = None) 
     return result
 
 
+# policy_snapshot bleibt immer registriert (Selbstauskunft / Debugging).
+_PROTECTED_TOOL_NAMES = frozenset({"policy_snapshot"})
+
+
+def _apply_disabled_tools_from_policy() -> None:
+    """Entfernt registrierte Tools gemäß ``tool_registry.disabled_tools`` (Server-Neustart nötig)."""
+    pol = _get_policy()
+    tr = pol.get("tool_registry")
+    if not isinstance(tr, dict):
+        return
+    raw = tr.get("disabled_tools")
+    if not isinstance(raw, list):
+        return
+    removed: list[str] = []
+    for item in raw:
+        name = str(item).strip()
+        if not name or name in _PROTECTED_TOOL_NAMES:
+            continue
+        try:
+            mcp.remove_tool(name)
+            removed.append(name)
+        except Exception:
+            pass
+    if removed:
+        print(
+            "MCC MCP: the following tools are disabled by policy (not registered): "
+            + ", ".join(removed),
+            file=_sys.stderr,
+        )
+
+
 if __name__ == "__main__":
-    host = os.getenv("MCP_HOST", "127.0.0.1")
-    port = int(os.getenv("MCP_PORT", "8766"))
+    host = (os.getenv("MCP_HOST") or os.getenv("MCC_HOST") or "127.0.0.1").strip()
+    port = int((os.getenv("MCP_PORT") or os.getenv("MCC_PORT") or "8766").strip())
     path = os.getenv("MCP_PATH", "/mcp")
+
+    _policy_integrity_startup_primary()
+    _apply_disabled_tools_from_policy()
 
     try:
         mcp.run(transport="streamable-http", host=host, port=port, path=path)

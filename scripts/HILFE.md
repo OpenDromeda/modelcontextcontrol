@@ -1,6 +1,6 @@
-EVOKI GUARDIAN CONTROL CENTER – HILFE
-=====================================
-Stand: Guardian V2 (OAuth/GitHub, Bearer optional, Keystore, erweiterte Überwachung)
+MCC – HILFE
+===========
+Stand: MCC (OAuth/GitHub, Bearer optional, Keystore, erweiterte Überwachung)
 
 DISCLAIMER
 ----------

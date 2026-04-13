@@ -1,64 +1,67 @@
-# MCC — Model-Context-Control
+# MCC — Modell-Kontext-Steuerung
 
-> *Who builds a server they can't control?*
+**Website (Community):** [https://modelcontextcontrol.io/](https://modelcontextcontrol.io/)  
+**Quellcode:** [https://github.com/EvolutionKi/modelcontextcontrol](https://github.com/EvolutionKi/modelcontextcontrol)
 
-**MCC** is the open governance layer for the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+> Wer baut schon einen Server, den er nicht kontrollieren kann?
 
-MCP defines *how* AI systems talk to tools.  
-MCC defines *who* can use MCP — and under what conditions.
+**MCC** ist die offene Governance-Schicht für das **Model Context Protocol (MCP)**.
 
----
+- **MCP** definiert, wie KI-Systeme mit Werkzeugen kommunizieren.  
+- **MCC** definiert, wer MCP nutzen darf — und unter welchen Bedingungen.
 
-## What MCC Does
+## Was MCC tut
 
-- **Policy enforcement** — define what tools are allowed, for which agents, under which conditions
-- **Audit logging** — every MCP call is recorded, traceable, reversible
-- **Rate limiting** — prevent runaway agents from overloading local resources
-- **Blocklists** — block dangerous or untrusted tool patterns by name
-- **Transparent failure** — errors are visible, documented, never silent
+- **Richtliniendurchsetzung** — Festlegung, welche Instrumente für welche Akteure unter welchen Bedingungen zulässig sind  
+- **Audit-Protokollierung** — jeder MCP-Aufruf wird aufgezeichnet, ist nachvollziehbar und reversibel  
+- **Ratenbegrenzung** — Verhinderung der Überlastung lokaler Ressourcen durch außer Kontrolle geratene Agenten  
+- **Blocklisten** — gefährliche oder nicht vertrauenswürdige Werkzeugmuster anhand ihres Namens blockieren  
+- **Transparente Fehler** — Fehler sind sichtbar, dokumentiert, niemals verschwiegen  
 
----
+## Warum MCC?
 
-## Why MCC?
+Das MCP-Ökosystem wächst rasant: über 5.800 Server, über 97 Millionen Downloads monatlich.  
+Die meisten lokalen Installationen verfügen über **keine** Governance-Ebene.
 
-The MCP ecosystem is growing fast: 5,800+ servers, 97M+ monthly downloads.  
-Most local deployments have no governance layer.
+**MCC ist diese Governance-Ebene.** Offen. Frei. Neutral.
 
-MCC is that governance layer. **Open. Free. Neutral.**
+## Philosophie
 
----
-
-## Philosophy
-
-> A system that makes its errors visible and correctable  
-> is the only system worth trusting.
-
----
+> Ein System, das seine Fehler sichtbar und korrigierbar macht,  
+> ist das einzige System, dem man vertrauen kann.
 
 ## Roadmap
 
-- [ ] Core policy engine (JSON-based, hot-reloadable)
-- [ ] Audit log (SQLite, immutable append-only)
-- [ ] CLI tool (`mcc validate`, `mcc status`, `mcc log`)
-- [ ] Docker image for self-hosted deployment
-- [ ] Integration guide for common MCP server setups
-
----
+- Kern-Richtlinien-Engine (JSON-basiert, Hot-Reloading möglich)  
+- Audit-Protokoll (SQLite, unveränderlich, nur Anhängen)  
+- CLI-Tool (`mcc validate`, `mcc status`, `mcc log`)  
+- Docker-Image für die selbstgehostete Bereitstellung  
+- Integrationsleitfaden für gängige MCP-Serverkonfigurationen  
 
 ## Domains
 
-| Domain | Purpose |
-|--------|---------|
-| [modelcontextcontrol.org](https://modelcontextcontrol.org) | Primary — Open Source |
-| [modelcontextcontrol.com](https://modelcontextcontrol.com) | International |
-| [modelcontextcontrol.io](https://modelcontextcontrol.io) | Tech community |
+| Domain | Zweck |
+|--------|--------|
+| [modelcontextcontrol.org](https://modelcontextcontrol.org/) | Primär — Open Source |
+| [modelcontextcontrol.com](https://modelcontextcontrol.com/) | International |
+| [modelcontextcontrol.io](https://modelcontextcontrol.io/) | Technologie-Community |
+
+## Lizenz
+
+**MIT** — kostenlos für alle.
 
 ---
 
-## License
+**Dieses Repository** enthält **MCC Lite**: die lokale Referenzimplementierung mit Guardian-Oberfläche, Policy-JSON und MCP-Server-Oberfläche für Datei-Werkzeuge. Technische Details und Release-Gate: [`README_CURSOR_START_HERE.md`](README_CURSOR_START_HERE.md) · englische Kurzfassung: [`README_EN.md`](README_EN.md).
 
-MIT — free for everyone.
+## Reservierte Policy-Felder
+
+Folgende Felder können in Policies aus zukünftigen MCC-Editionen vorkommen, werden von **MCC Lite aber stillschweigend ignoriert**: `sqlite_mcp`, `gemini_cli`, `github_mcp`, `git`, `at_mention`. Lite setzt nur die Datei-Tool-Schicht durch (`roots`, `permissions`, `blocked`, `tool_registry`, `rate_limit`, `client_blocklist`, `advanced.*`, `honeypot`).
+
+## Herkunft
+
+MCC entstand aus dem Forschungsprojekt **EVOKI V5** über lokale KI-Souveränität und Mensch-Maschine-Vertrauensinfrastruktur. Während EVOKI das gesamte Terrain erkundet — Multi-Agenten-Systeme, konstitutionelle Governance, kryptografische Provenienz — extrahiert MCC ein einzelnes Primitiv als eigenständiges Werkzeug: *was darf eine Maschine auf dieser Festplatte berühren, und wer entscheidet das?* MCC ist MIT-lizenziert und wird unabhängig von jeder EVOKI-Abhängigkeit entwickelt.
 
 ---
 
-*Built with [EVOKI V5](https://evolution-ki.com) · Karlsruhe, 2026*
+*Entstanden im Forschungsprojekt EVOKI V5 · Karlsruhe, 2026*
