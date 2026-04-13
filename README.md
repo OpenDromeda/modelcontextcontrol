@@ -52,7 +52,7 @@ Die meisten lokalen Installationen verfügen über **keine** Governance-Ebene.
 
 ---
 
-**Dieses Repository** enthält **MCC Lite**: die lokale Referenzimplementierung mit Guardian-Oberfläche, Policy-JSON und MCP-Server-Oberfläche für Datei-Werkzeuge. Technische Details und Release-Gate: [`README_CURSOR_START_HERE.md`](README_CURSOR_START_HERE.md) · englische Kurzfassung: [`README_EN.md`](README_EN.md).
+**Dieses Repository** enthält **MCC Lite**: die lokale Referenzimplementierung mit MCC-Oberfläche, Policy-JSON und MCP-Server-Oberfläche für Datei-Werkzeuge. Technische Details und Release-Gate: [`README_CURSOR_START_HERE.md`](README_CURSOR_START_HERE.md) · englische Kurzfassung: [`README_EN.md`](README_EN.md).
 
 ## Reservierte Policy-Felder
 

@@ -15,7 +15,7 @@ for _name in ("HILFE.md", "HELP.md"):
         datas.append((_p, "."))
 
 a = Analysis(
-    [os.path.join("scripts", "mcp_guardian_app.py")],
+    [os.path.join("scripts", "mcc_app.py")],
     pathex=[_ROOT],
     binaries=[],
     datas=datas,

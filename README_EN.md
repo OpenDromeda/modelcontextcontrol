@@ -52,7 +52,7 @@ MCC **Lite** is the **local policy and logging layer** for MCP **file** tools in
 - **No cloud trust by default:** Public tunnel URLs are optional; the default is localhost only.
 - **No shell execution:** `run_terminal_command` is **not** part of MCC Lite.
 - **No hourly context/cowork scans:** `run_kontext_cowork_hourly` is **not** part of MCC Lite (reserved for extended editions).
-- **No automated Python script execution:** The Guardian GUI does not run scheduled or on-demand Python scripts from the policy (removed from MCC Lite).
+- **No automated Python script execution:** The MCC GUI does not run scheduled or on-demand Python scripts from the policy (removed from MCC Lite).
 - **No automatic wide-open disks:** The server default policy uses **empty roots** until you configure them. The **bundled** `config/mcp_policy.json` in this repo may ship wider example roots (e.g. drive letters) for developer setups — treat it as a template, not the strict public default.
 - **No recovery of your master password:** The keystore is encrypted locally; lost passwords cannot be reset by the vendor.
 
@@ -66,7 +66,7 @@ MCC **Lite** is the **local policy and logging layer** for MCP **file** tools in
 | `MCC_HOST` / `MCP_HOST` | Bind address |
 | `MCC_PORT` / `MCP_PORT` | TCP port |
 | `MCC_LOCALE` | GUI language: `de` or `en` (fallback if no saved UI locale) |
-| `ui_locale` in `config/guardian_ui.json` | Persisted GUI language (`de` / `en`), set via **View → Language** in the Guardian |
+| `ui_locale` in `config/mcc_ui.json` | Persisted GUI language (`de` / `en`), set via **View → Language** in MCC |
 
 See [`README.md`](README.md) (German project overview) and `README_CURSOR_START_HERE.md` for the maintainer workflow and release gate.
 
