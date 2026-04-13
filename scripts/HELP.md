@@ -68,6 +68,6 @@ QUICK REFERENCE
    - README_EN.md — project overview in English
    - https://modelcontextcontrol.io — community site
 
-8. Reporting issues
+8. Reporting issues / Contact
    - https://github.com/EvolutionKi/modelcontextcontrol
    - contact@opendromeda.org
